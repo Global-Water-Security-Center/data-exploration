@@ -28,10 +28,10 @@ def main():
     gdm_dataset = gdm_dataset.rio.write_crs(4326)
     gdm_dataset = gdm_dataset.rio.clip(country_geom)
     unique_values = numpy.unique(gdm_dataset.drought)
-    val_to_count_map = collections.defaultdict(int)
-    with open(f'{COUNTRY_NAME}_{START_DATE}_{END_DATE}_drought.csv', 'w') as out_table_file:
+    with open(f'{COUNTRY_NAME}_{START_DATE}_{END_DATE}_drought_v2.csv', 'w') as out_table_file:
         out_table_file.write('date,'+','.join([str(x) for x in unique_values])+'\n')
         for time_index in gdm_dataset.time:
+            val_to_count_map = collections.defaultdict(int)
             unique_vals_list, unique_count_list = numpy.unique(gdm_dataset.sel(time=time_index).drought, return_counts=True)
             val_to_count_map.update({
                 val: count for val, count in zip(unique_vals_list, unique_count_list)
