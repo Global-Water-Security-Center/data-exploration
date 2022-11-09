@@ -1,0 +1,11 @@
+#FROM python:3
+FROM conda/miniconda3
+
+RUN set -ex && \
+    conda update -n base -c defaults conda && \
+    conda config --add channels conda-forge
+
+RUN set -ex && conda install -c conda-forge nco
+RUN conda run pip install climate-indices
+WORKDIR /var/workspace
+SHELL ["conda", "run", "/bin/bash", "-c"]
