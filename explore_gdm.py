@@ -12,9 +12,9 @@ END_DATE = '2022-03-01'
 
 
 def main():
-    # gdm_dataset = xarray.open_dataset('nclimdiv.nc')
-    # print(gdm_dataset)
-    # return
+    gdm_dataset = xarray.open_dataset('nclimgrid-tavg.nc')
+    print(gdm_dataset)
+    return
 
     # countries.gpkg can be downloaded from https://github.com/tsamsonov/r-geo-course/blob/master/data/ne/countries.gpkg
     countries_vector = geopandas.read_file('countries.gpkg')
