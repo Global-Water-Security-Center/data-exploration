@@ -1,4 +1,14 @@
-#FROM python:3
+# Created to run "process_climate_indices" on a windows machine since nco is
+# buggy on Windows (see https://github.com/monocongo/climate_indices/issues/478).
+#
+# Build like this:
+#   docker build . -f Dockerfile-climate-indicies -t climate-indicies
+#
+# Then run a command line like this:
+#   docker run --rm -it -v %CD%:/var/workspace climate-indicies process_climate_indices --index pnp --periodicity monthly --output_file_base pnp --netcdf_precip nclimgrid-prcp.nc --var_name_precip prcp --scales 3 --calibration_start_year 2000 --calibration_end_year 2010
+#
+#  note the "-v %CD%:/var/workspace" will map the files in the current working
+#   directory to the working directory on the running Docker conatiner
 FROM conda/miniconda3
 
 RUN set -ex && \
