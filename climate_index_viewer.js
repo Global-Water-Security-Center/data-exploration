@@ -94,9 +94,14 @@ var panel_list = [];
           if (datasets[key] == '') {
             self.setValue(original_value, false);
             self.setDisabled(false);
-            return
+            return;
           }
           active_context.raster = ee.Image.loadGeoTIFF(datasets[key]);
+          var band_count = active_context.raster.bandNames().length().getInfo();
+          active_context.slider.setValue(0, false);
+          active_context.slider.setMax(band_count);
+          //active_context.slider.setDisabled(band_count <= 1);
+          active_context.slider.setDisabled(false);
 
           var mean_reducer = ee.Reducer.percentile([10, 90], ['p10', 'p90']);
           var meanDictionary = active_context.raster.reduceRegion({
@@ -106,7 +111,8 @@ var panel_list = [];
           });
 
           ee.data.computeValue(meanDictionary, function (val) {
-            var band_index = 0;
+            var band_index = active_context.slider.getValue();
+            console.log(band_index);
             active_context.visParams = {
               min: val['B'+band_index+'_p10'],
               max: val['B'+band_index+'_p90'],
@@ -143,6 +149,9 @@ var panel_list = [];
     active_context.point_val = ui.Textbox('nothing clicked');
     function updateVisParams() {
       if (active_context.last_layer !== null) {
+        var band_index = active_context.slider.getValue();
+        console.log(band_index);
+        active_context.visParams.bands = ['B'+band_index];
         active_context.last_layer.setVisParams(active_context.visParams);
       }
     }
@@ -225,6 +234,8 @@ var panel_list = [];
       var names = ['Low', '', '', '', 'High'];
       if (active_context.legend_panel !== null) {
         active_context.legend_panel.clear();
+        active_context.date_panel.clear();
+        active_context.legend_date_panel.clear();
       } else {
         active_context.legend_panel = ui.Panel({
           layout: ui.Panel.Layout.Flow('horizontal'),
@@ -269,13 +280,18 @@ var panel_list = [];
           }
         });
       var band_slider = ui.Slider({
-        min: 1,
-        max: date_bands,
+        min: 0,
+        max: 1,
         step: 1,
         style: {
             width: '100%',
-        }
+        },
+        onChange: function(value, self) {
+          active_context.updateVisParams();
+        },
       });
+      band_slider.setDisabled(false);
+      active_context.slider = band_slider;
       active_context.date_panel.add(band_slider);
       //active_context.map.add(active_context.date_panel);
 
