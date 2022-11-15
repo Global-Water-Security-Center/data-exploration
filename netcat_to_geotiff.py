@@ -11,7 +11,7 @@ import xarray
 
 def main():
     """Entrypoint."""
-    for nc_path in glob.glob('*60.nc'):
+    for nc_path in glob.glob(r"D:\repositories\data-exploration\Kenya_drought_2012-01-01_2022-03-01_v2.nc"):
 
         gdm_dataset = xarray.open_dataset(nc_path)
         basename = os.path.basename(os.path.splitext(nc_path)[0])
@@ -39,7 +39,7 @@ def main():
                 'COMPRESS': 'LZW',
                 'PREDICTOR': 2}) as new_dataset:
             gdm_dataset = gdm_dataset.sel(
-                time=pandas.date_range(start='2000-01-01', end='2022-03-01', freq='MS'))
+                time=pandas.date_range(start='2012-01-01', end='2022-03-01', freq='MS'))
             for date_index in range(len(gdm_dataset.time)):
                 # there's only one so just get the first one
 
