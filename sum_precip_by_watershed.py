@@ -12,7 +12,18 @@ END_DATE = '2022-08-01'
 
 def main():
     gdm_dataset = xarray.open_dataset('http://h2o-sandbox1.aer-aws-nonprod.net/thredds/dodsC/era5/daily-summary.nc')
+    print(gdm_dataset)
 
+
+    # TODO:
+    # - get time range
+    #   - clip by time range
+    # - get watershed(s)
+    #   - clip by watersheds
+    # - print per day and total sum
+
+
+    return
     # GDM has dates in the byte format of '2012-01-01T00:00:00Z', so this
     # converts it to that
     # fix the S64 coding to a real datetime
