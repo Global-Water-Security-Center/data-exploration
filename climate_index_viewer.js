@@ -5,14 +5,11 @@ var date_bands = 1488;
 
 var datasets = {
     '(*clear*)': '',
-    'global_n_export_esamod2': 'gs://ecoshard-root/wwf_meeting_viewer/cog_global_n_export_esamod2_compressed_md5_96c12f4f833498771d18b131b8cbb49b.tif',
-    'global_sed_deposition_esamod2': 'gs://ecoshard-root/wwf_meeting_viewer/cog_global_sed_deposition_esamod2_compressed_md5_ff134776cd7d9d69dc5e2fe14b53474c.tif',
-    'global_sed_export_esamod2': 'gs://ecoshard-root/wwf_meeting_viewer/cog_global_sed_export_esamod2_compressed_md5_fa10fd3d1942d0c3ce78b5aa544b150f.tif',
-    'global_usle_marine_mod_ESA_2020': 'gs://ecoshard-root/wwf_meeting_viewer/cog_global_usle_marine_mod_ESA_2020_compressed_md5_99e715.tif',
-    'n_retention_potential_change_to_PNV': 'gs://ecoshard-root/wwf_meeting_viewer/cog_n_retention_potential_change_to_PNV_md5_7d7b9e.tif',
-    'sed_deposition_potential_change_to_PNV': 'gs://ecoshard-root/wwf_meeting_viewer/cog_sed_deposition_potential_change_to_PNV_md5_a87b02.tif',
-    'sed_retention_potential_change_to_PNV': 'gs://ecoshard-root/wwf_meeting_viewer/cog_sed_retention_potential_change_to_PNV_md5_6a550e.tif',
-    'usle_potential_change_to_PNV': 'gs://ecoshard-root/wwf_meeting_viewer/cog_usle_potential_change_to_PNV_md5_0c4e97.tif',
+    'pnp_60_1895-01-01': 'gs://ecoshard-root/gwsc/pnp_pnp_60/pnp_pnp_60_1895-01-01.tif',
+    'spei_gamma_60_1895-01-01': 'gs://ecoshard-root/gwsc/spei_spei_gamma_60/spei_spei_gamma_60_1895-01-01.tif',
+    'spei_pearson_60_1895-01-01': 'gs://ecoshard-root/gwsc/spei_spei_pearson_60/spei_spei_pearson_60_1895-01-01.tif',
+    'spi_gamma_60_1895-01-01': 'gs://ecoshard-root/gwsc/spi_spi_gamma_60/spi_spi_gamma_60_1895-01-01.tif',
+    'spi_pearson_60_1895-01-01': 'gs://ecoshard-root/gwsc/spi_spi_pearson_60/spi_spi_pearson_60_1895-01-01.tif',
 };
 
 var legend_styles = {
@@ -101,7 +98,7 @@ var panel_list = [];
           active_context.slider.setValue(0, false);
           active_context.slider.setMax(band_count);
           //active_context.slider.setDisabled(band_count <= 1);
-          active_context.slider.setDisabled(false);
+          active_context.slider.setDisabled(true);
 
           var mean_reducer = ee.Reducer.percentile([10, 90], ['p10', 'p90']);
           var meanDictionary = active_context.raster.reduceRegion({
@@ -287,10 +284,10 @@ var panel_list = [];
             width: '100%',
         },
         onChange: function(value, self) {
-          active_context.updateVisParams();
+          //active_context.updateVisParams();
         },
       });
-      band_slider.setDisabled(false);
+      band_slider.setDisabled(true);
       active_context.slider = band_slider;
       active_context.date_panel.add(band_slider);
       //active_context.map.add(active_context.date_panel);

@@ -88,5 +88,6 @@ def main():
             print(time_index.values.item())
             out_table_file.write(f'{(time_index.values.item()).strftime("%Y-%m-%d")},' + ','.join([str(val_to_count_map[val]) for val in unique_values])+'\n')
 
+
 if __name__ == '__main__':
     main()
