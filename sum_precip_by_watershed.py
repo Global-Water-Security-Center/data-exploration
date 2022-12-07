@@ -111,29 +111,25 @@ def main():
         csv_table.write('time,sum_tp_mm\n')
         for val in sum_per_time:
             csv_table.write(f'{val.time.data},{val.data}\n')
-    # sum_over_time = sum_over_time_list[0]
-    # print(sum_over_time)
-    # sum_over_time.plot()
 
     #sum_over_time = xarray.merge(sum_over_time_list)
-    sum_over_time = sum_over_time_list[0].combine_first(sum_over_time_list[1])
-    print(sum_over_time)
+    if len(sum_over_time_list) > 1:
+        sum_over_time = sum_over_time_list[0].combine_first(
+            sum_over_time_list[1])
+    else:
+        sum_over_time = sum_over_time_list[0]
     sum_over_time.plot()
 
     target_raster_path = f"{target_base}.tif"
     print(f'writing result to {target_raster_path}')
+
     # get exact coords for correct geotransform
-    # convert lon that goes from 0 to 360 to -180 to 180
-    # gdm_dataset.coords['longitude'] = (
-    #     gdm_dataset.coords['longitude'] + 180) % 360 - 180
-    # gdm_dataset = gdm_dataset.sortby(gdm_dataset.longitude)
-    print(sum_over_time)
-    lat_slice = sum_over_time.latitude
-    lon_slice = sum_over_time.longitude
-    print(lat_slice)
-    print(lon_slice)
-    xres = float((lon_slice[-1] - lon_slice[0]) / len(lon_slice))
-    yres = float((lat_slice[-1] - lat_slice[0]) / len(lat_slice))
+    xres = float(
+        (sum_over_time.longitude[-1] - sum_over_time.longitude[0]) /
+        len(sum_over_time.longitude))
+    yres = float(
+        (sum_over_time.latitude[-1] - sum_over_time.latitude[0]) /
+        len(sum_over_time.latitude))
     transform = Affine.translation(
         lon_slice[0], lat_slice[0]) * Affine.scale(xres, yres)
 
