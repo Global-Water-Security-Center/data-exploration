@@ -1,4 +1,19 @@
-"""Sum precipitation in a watershed(s) over a given time period."""
+"""Sum precipitation in a watershed(s) over a given time period.
+
+Usage:
+call like this:
+
+python sum_precip_by_watershed.py europe_basins 2021-03-01 2022-03-01
+
+Then it will query the AER dataset
+http://h2o-sandbox1.aer-aws-nonprod.net/thredds/dodsC/era5/daily-summary.nc
+for the sum_tp_mm value over that time period and generates two things:
+1) a geotiff named after the watershed file (in this case
+   europe_basins_precip_sum_2021-03-01_2022-03-01.tif) passed in and the
+   date range that's a summation of all the precip per pixel over the time
+   period provided.
+2) a CSV of TOTAL sum per time snapshot with the same naming convention.
+"""
 import argparse
 import os
 
@@ -155,3 +170,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+g
