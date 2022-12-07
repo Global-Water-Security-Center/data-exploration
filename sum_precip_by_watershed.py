@@ -9,12 +9,12 @@ import pandas
 import rasterio
 import rioxarray
 import xarray
-import matplotlib.pyplot as plt
 
 
 WEBDAP_PATH = (
     'http://h2o-sandbox1.aer-aws-nonprod.net/'
     'thredds/dodsC/era5/daily-summary.nc')
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -118,7 +118,6 @@ def main():
             sum_over_time_list[1])
     else:
         sum_over_time = sum_over_time_list[0]
-    sum_over_time.plot()
 
     target_raster_path = f"{target_base}.tif"
     print(f'writing result to {target_raster_path}')
@@ -152,8 +151,6 @@ def main():
             'COMPRESS': 'LZW',
             'PREDICTOR': 2}) as new_dataset:
         new_dataset.write(sum_over_time, 1)
-
-    plt.show()
 
 
 if __name__ == '__main__':
