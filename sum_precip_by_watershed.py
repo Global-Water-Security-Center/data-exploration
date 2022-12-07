@@ -58,7 +58,7 @@ def main():
     # this loop handles some serious slowdown when querying across the meridian
     # and instead breaks it up into western/eastern hemisphere and merges at
     # the end
-    for lon_slice in [slice(0, max_lon), slice(min_lon, 0)]:
+    for lon_slice in [slice(min_lon, 0), slice(0, max_lon)]:
         if lon_slice == slice(0, 0):
             # it doesn't overlap meridian
             continue
@@ -131,16 +131,17 @@ def main():
         (sum_over_time.latitude[-1] - sum_over_time.latitude[0]) /
         len(sum_over_time.latitude))
     transform = Affine.translation(
-        lon_slice[0], lat_slice[0]) * Affine.scale(xres, yres)
+        sum_over_time.longitude[0], sum_over_time.latitude[0]) * Affine.scale(
+        xres, yres)
 
-    print(f'making raster with bounds\n\t{lat_slice}:{lon_slice}\n\t{xres}*{yres}')
+    print(f'making raster {target_raster_path}')
 
     with rasterio.open(
         target_raster_path,
         mode="w",
         driver="GTiff",
-        height=len(lat_slice),
-        width=len(lon_slice),
+        height=len(sum_over_time.latitude),
+        width=len(sum_over_time.longitude),
         count=1,
         dtype=numpy.float32,
         nodata=numpy.nan,
@@ -151,7 +152,6 @@ def main():
             'COMPRESS': 'LZW',
             'PREDICTOR': 2}) as new_dataset:
         new_dataset.write(sum_over_time, 1)
-        #new_dataset.write(sum_over_time, 1)
 
     plt.show()
 
