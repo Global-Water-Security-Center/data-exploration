@@ -24,11 +24,11 @@ import pandas
 import rasterio
 import rioxarray
 import xarray
-
+#from matplotlib import pyplot as plt
 
 WEBDAP_PATH = (
     'http://h2o-sandbox1.aer-aws-nonprod.net/'
-    'thredds/dodsC/era5/daily-summary.nc')
+    'thredds/dodsC/era5/normal-prcp-temp.nc')
 
 
 def main():
@@ -57,6 +57,8 @@ def main():
 
     print(f'loading vector {args.path_to_watersheds}')
     vector = geopandas.read_file(args.path_to_watersheds)
+    #vector.plot()
+    #plt.show()
     vector = vector.to_crs('epsg:4326')
     vector = vector.simplify(0.25/2) # simplify to the resolution of the raster
 
@@ -122,6 +124,8 @@ def main():
     target_table_path = f"{target_base}.csv"
 
     sum_per_time = sum(sum_per_time_list)
+    # sum_per_time.plot()
+    # plt.show()
     with open(target_table_path, 'w') as csv_table:
         csv_table.write('time,sum_tp_mm\n')
         for val in sum_per_time:
@@ -150,6 +154,9 @@ def main():
 
     print(f'making raster {target_raster_path}')
 
+    # sum_over_time.plot()
+    # plt.show()
+
     with rasterio.open(
         target_raster_path,
         mode="w",
@@ -170,4 +177,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-g
