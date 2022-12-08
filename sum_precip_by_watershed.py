@@ -7,7 +7,7 @@ python sum_precip_by_watershed.py europe_basins 2021-03-01 2022-03-01
 
 Then it will query the AER dataset
 http://h2o-sandbox1.aer-aws-nonprod.net/thredds/dodsC/era5/daily-summary.nc
-for the sum_tp_mm value over that time period and generates two things:
+for the normal_sum_tp_mm value over that time period and generates two things:
 1) a geotiff named after the watershed file (in this case
    europe_basins_precip_sum_2021-03-01_2022-03-01.tif) passed in and the
    date range that's a summation of all the precip per pixel over the time
@@ -49,12 +49,12 @@ def main():
         gdm_dataset.time.str.decode('utf-8').astype('datetime64'))
     date_range = pandas.date_range(
         start=args.start_date, end=args.end_date, freq='MS')
+    print(gdm_dataset)
 
     # convert lon that goes from 0 to 360 to -180 to 180
     # gdm_dataset.coords['longitude'] = (
     #     gdm_dataset.coords['longitude'] + 180) % 360 - 180
     # gdm_dataset = gdm_dataset.sortby(gdm_dataset.longitude)
-
     print(f'loading vector {args.path_to_watersheds}')
     vector = geopandas.read_file(args.path_to_watersheds)
     #vector.plot()
@@ -97,7 +97,7 @@ def main():
         local_slice = gdm_dataset.sel(
             latitude=lat_slice,
             longitude=active_slice,
-            time=date_range).sum_tp_mm
+            time=date_range).normal_sum_tp_mm
         vector_basename = os.path.splitext(
             os.path.basename(args.path_to_watersheds))[0]
         print(f'clipping subset to {vector_basename}')
@@ -127,7 +127,7 @@ def main():
     # sum_per_time.plot()
     # plt.show()
     with open(target_table_path, 'w') as csv_table:
-        csv_table.write('time,sum_tp_mm\n')
+        csv_table.write('time,normal_sum_tp_mm\n')
         for val in sum_per_time:
             csv_table.write(f'{val.time.data},{val.data}\n')
 
