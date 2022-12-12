@@ -17,18 +17,25 @@ for the normal_sum_tp_mm value over that time period and generates two things:
 import argparse
 import os
 
-from rasterio.transform import Affine
+import requests
+import ee
+# from rasterio.transform import Affine
 import geopandas
 import numpy
 import pandas
-import rasterio
-import rioxarray
-import xarray
+import geemap
+# import rasterio
+# import rioxarray
+# import xarray
+import json
 #from matplotlib import pyplot as plt
 
 WEBDAP_PATH = (
     'http://h2o-sandbox1.aer-aws-nonprod.net/'
     'thredds/dodsC/era5/normal-prcp-temp.nc')
+
+
+# TODO: convert this to use GEE directly to extract values, use ee_sampler as example
 
 
 def main():
@@ -40,7 +47,52 @@ def main():
         'start_date', help='start date for summation (YYYY-MM-DD) format')
     parser.add_argument(
         'end_date', help='start date for summation (YYYY-MM-DD) format')
+    parser.add_argument(
+        '--authenticate', action='store_true',
+        help='Pass this flag if you need to reauthenticate with GEE')
     args = parser.parse_args()
+
+    if args.authenticate:
+        ee.Authenticate()
+    ee.Initialize()
+
+    # convert to GEE polygon
+    gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
+    gp_poly.to_file('local.shp')
+    ee_poly = geemap.shp_to_ee('local.shp')
+
+    era5_monthly_collection = ee.ImageCollection("ECMWF/ERA5/MONTHLY")
+    era5_monthly_collection = era5_monthly_collection.filterDate(
+                    args.start_date, args.end_date)
+    era5_monthly_collection = era5_monthly_collection.select(
+        'total_precipitation')
+    era5_monthly_collection = era5_monthly_collection.toBands()
+    print(era5_monthly_collection.bandNames().getInfo())
+
+    era5_monthly_collection = era5_monthly_collection
+
+    mask = ee.Image.constant(1).clip(ee_poly).mask()
+    era5_total_sum = era5_monthly_collection.reduce('sum').clip(ee_poly).mask(mask)
+
+
+    url = era5_total_sum.getDownloadUrl({
+        'region': ee_poly.geometry().bounds(),
+        'scale': 10000,
+        'format': 'GEO_TIFF'
+    })
+    response = requests.get(url)
+    with open('sum.tif', 'wb') as fd:
+        fd.write(response.content)
+
+    print(era5_total_sum.getInfo())
+
+    return
+
+    ####################
+
+
+
+
 
     print(f'loading webdap netcat from {WEBDAP_PATH}')
     gdm_dataset = xarray.open_dataset(WEBDAP_PATH)
