@@ -17,24 +17,19 @@ for the normal_sum_tp_mm value over that time period and generates two things:
 import argparse
 import os
 
-import requests
 import ee
-# from rasterio.transform import Affine
-import geopandas
-import numpy
-import pandas
 import geemap
-# import rasterio
-# import rioxarray
-# import xarray
-import json
-#from matplotlib import pyplot as plt
+import geopandas
+import requests
 
 WEBDAP_PATH = (
     'http://h2o-sandbox1.aer-aws-nonprod.net/'
     'thredds/dodsC/era5/normal-prcp-temp.nc')
 
-
+ERA5_RESOLUTION_M = 27830
+ERA5_FILE_PREFIX = 'era5_monthly'
+ERA5_BANDS_TO_REPORT = ['total_precipitation', 'mean_2m_air_temperature']
+CSV_BANDS_TO_DISPLAY = ['mean_precip (mm)', 'mean_2m_air_temp (K)']
 # TODO: convert this to use GEE directly to extract values, use ee_sampler as example
 
 
@@ -58,173 +53,76 @@ def main():
 
     # convert to GEE polygon
     gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
-    gp_poly.to_file('local.shp')
-    ee_poly = geemap.shp_to_ee('local.shp')
+    local_shapefile_path = '_local_ok_to_delete.shp'
+    gp_poly.to_file(local_shapefile_path)
+    gp_poly = None
+    ee_poly = geemap.shp_to_ee(local_shapefile_path)
 
     era5_monthly_collection = ee.ImageCollection("ECMWF/ERA5/MONTHLY")
     era5_monthly_collection = era5_monthly_collection.filterDate(
                     args.start_date, args.end_date)
     era5_monthly_collection = era5_monthly_collection.select(
-        'total_precipitation')
-    era5_monthly_collection = era5_monthly_collection.toBands()
-    print(era5_monthly_collection.bandNames().getInfo())
+        ERA5_BANDS_TO_REPORT)
+    poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
 
-    era5_monthly_collection = era5_monthly_collection
+    def clip_and_sum(image, list_so_far):
+        list_so_far = ee.List(list_so_far)
+        reduced_dict = image.clip(ee_poly).mask(
+            poly_mask).reduceRegion(**{
+                'geometry': ee_poly,
+                'reducer': ee.Reducer.mean()
+            })
+        list_so_far = list_so_far.add(
+            [image.get(key) for key in ['year', 'month']] +
+            [reduced_dict.get(key) for key in ERA5_BANDS_TO_REPORT])
 
-    mask = ee.Image.constant(1).clip(ee_poly).mask()
-    era5_total_sum = era5_monthly_collection.reduce('sum').clip(ee_poly).mask(mask)
+        return list_so_far
+    mean_per_band = era5_monthly_collection.iterate(
+        clip_and_sum, ee.List([]))
+    print()
 
+    vector_basename = os.path.splitext(
+        os.path.basename(args.path_to_watersheds))[0]
+    target_base = f"{vector_basename}_precip_temp_mean_{args.start_date}_{args.end_date}"
+    target_table_path = f"{target_base}.csv"
+    print(f'generating summary table to {target_table_path}')
+    with open(target_table_path, 'w') as table_file:
+        table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY) + '\n')
+        for payload in mean_per_band.getInfo():
+            table_file.write(
+                f'{payload[0]}-{payload[1]:02d},' +
+                ','.join([str(x) for x in payload[2:]]) +
+                '\n')
 
-    url = era5_total_sum.getDownloadUrl({
+    era5_monthly_precp_collection = era5_monthly_collection.select(
+        'total_precipitation').toBands()
+    era5_precip_sum = era5_monthly_precp_collection.reduce('sum').clip(
+        ee_poly).mask(poly_mask)
+    url = era5_precip_sum.getDownloadUrl({
         'region': ee_poly.geometry().bounds(),
-        'scale': 10000,
+        'scale': ERA5_RESOLUTION_M,
         'format': 'GEO_TIFF'
     })
     response = requests.get(url)
-    with open('sum.tif', 'wb') as fd:
+    precip_path = f"{vector_basename}_precip_sum_{args.start_date}_{args.end_date}.tif"
+    print(f'calculate total precip sum to {precip_path}')
+    with open(precip_path, 'wb') as fd:
         fd.write(response.content)
 
-    print(era5_total_sum.getInfo())
-
-    return
-
-    ####################
-
-
-
-
-
-    print(f'loading webdap netcat from {WEBDAP_PATH}')
-    gdm_dataset = xarray.open_dataset(WEBDAP_PATH)
-    gdm_dataset = gdm_dataset.rio.write_crs('epsg:4326')
-    gdm_dataset['time'] = pandas.DatetimeIndex(
-        gdm_dataset.time.str.decode('utf-8').astype('datetime64'))
-    date_range = pandas.date_range(
-        start=args.start_date, end=args.end_date, freq='MS')
-    print(gdm_dataset)
-
-    # convert lon that goes from 0 to 360 to -180 to 180
-    # gdm_dataset.coords['longitude'] = (
-    #     gdm_dataset.coords['longitude'] + 180) % 360 - 180
-    # gdm_dataset = gdm_dataset.sortby(gdm_dataset.longitude)
-    print(f'loading vector {args.path_to_watersheds}')
-    vector = geopandas.read_file(args.path_to_watersheds)
-    #vector.plot()
-    #plt.show()
-    vector = vector.to_crs('epsg:4326')
-    vector = vector.simplify(0.25/2) # simplify to the resolution of the raster
-
-    # max first since lat slice goes from 90 to -90
-    lat_slice = slice(
-        float(numpy.max(vector.bounds.maxy)),
-        float(numpy.min(vector.bounds.miny)))
-    # lng slice is from -180 to 180 so min first
-    min_lon = float(numpy.min(vector.bounds.minx))
-    max_lon = float(numpy.max(vector.bounds.maxx))
-
-    sum_per_time_list = []
-    sum_over_time_list = []
-    # this loop handles some serious slowdown when querying across the meridian
-    # and instead breaks it up into western/eastern hemisphere and merges at
-    # the end
-    for lon_slice in [slice(min_lon, 0), slice(0, max_lon)]:
-        if lon_slice == slice(0, 0):
-            # it doesn't overlap meridian
-            continue
-
-        active_slice = lon_slice
-        local_vector = vector
-        if lon_slice.start < 0:
-            # transform geometry 360 degrees
-            local_vector = local_vector.translate(xoff=360)
-            print(local_vector.bounds.minx)
-            active_slice = slice(360+lon_slice.start, 360)
-
-        print(
-            f'subsetting to the following:'
-            f'\n\tdate_range: {date_range}'
-            f'\n\tlat slice: {lat_slice}'
-            f'\n\tlon slice: {active_slice}')
-
-        local_slice = gdm_dataset.sel(
-            latitude=lat_slice,
-            longitude=active_slice,
-            time=date_range).normal_sum_tp_mm
-        vector_basename = os.path.splitext(
-            os.path.basename(args.path_to_watersheds))[0]
-        print(f'clipping subset to {vector_basename}')
-        try:
-            local_slice = local_slice.rio.clip(local_vector.geometry.values)
-        except rioxarray.exceptions.NoDataInBounds:
-            print(f'no data in bounds for slice {lat_slice}/{lon_slice}')
-            continue
-
-        if lon_slice.start < 0:
-            # transform back into -180, 180 so it can merge
-            local_slice.coords['longitude'] = (
-                local_slice.coords['longitude'] + 180) % 360 - 180
-            local_slice = local_slice.sortby(local_slice.longitude)
-
-        sum_per_time = local_slice.sum(
-            dim=['longitude', 'latitude'], skipna=True, min_count=1)
-        sum_per_time_list.append(sum_per_time)
-
-        sum_over_time = local_slice.sum(dim='time', skipna=True, min_count=1)
-        sum_over_time_list.append(sum_over_time)
-
-    target_base = f"{vector_basename}_precip_sum_{args.start_date}_{args.end_date}"
-    target_table_path = f"{target_base}.csv"
-
-    sum_per_time = sum(sum_per_time_list)
-    # sum_per_time.plot()
-    # plt.show()
-    with open(target_table_path, 'w') as csv_table:
-        csv_table.write('time,normal_sum_tp_mm\n')
-        for val in sum_per_time:
-            csv_table.write(f'{val.time.data},{val.data}\n')
-
-    #sum_over_time = xarray.merge(sum_over_time_list)
-    if len(sum_over_time_list) > 1:
-        sum_over_time = sum_over_time_list[0].combine_first(
-            sum_over_time_list[1])
-    else:
-        sum_over_time = sum_over_time_list[0]
-
-    target_raster_path = f"{target_base}.tif"
-    print(f'writing result to {target_raster_path}')
-
-    # get exact coords for correct geotransform
-    xres = float(
-        (sum_over_time.longitude[-1] - sum_over_time.longitude[0]) /
-        len(sum_over_time.longitude))
-    yres = float(
-        (sum_over_time.latitude[-1] - sum_over_time.latitude[0]) /
-        len(sum_over_time.latitude))
-    transform = Affine.translation(
-        sum_over_time.longitude[0], sum_over_time.latitude[0]) * Affine.scale(
-        xres, yres)
-
-    print(f'making raster {target_raster_path}')
-
-    # sum_over_time.plot()
-    # plt.show()
-
-    with rasterio.open(
-        target_raster_path,
-        mode="w",
-        driver="GTiff",
-        height=len(sum_over_time.latitude),
-        width=len(sum_over_time.longitude),
-        count=1,
-        dtype=numpy.float32,
-        nodata=numpy.nan,
-        crs="+proj=latlong",
-        transform=transform,
-        kwargs={
-            'tiled': 'YES',
-            'COMPRESS': 'LZW',
-            'PREDICTOR': 2}) as new_dataset:
-        new_dataset.write(sum_over_time, 1)
+    era5_monthly_temp_collection = era5_monthly_collection.select(
+        'mean_2m_air_temperature').toBands()
+    era5_temp_mean = era5_monthly_temp_collection.reduce('mean').clip(
+        ee_poly).mask(poly_mask)
+    url = era5_temp_mean.getDownloadUrl({
+        'region': ee_poly.geometry().bounds(),
+        'scale': ERA5_RESOLUTION_M,
+        'format': 'GEO_TIFF'
+    })
+    response = requests.get(url)
+    temp_path = f"{vector_basename}_temp_mean_{args.start_date}_{args.end_date}.tif"
+    print(f'calculate mean temp to {temp_path}')
+    with open(temp_path, 'wb') as fd:
+        fd.write(response.content)
 
 
 if __name__ == '__main__':
