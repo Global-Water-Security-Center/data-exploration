@@ -49,6 +49,7 @@ def main():
 
     if args.authenticate:
         ee.Authenticate()
+        return
     ee.Initialize()
 
     # convert to GEE polygon
