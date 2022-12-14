@@ -28,9 +28,13 @@ WEBDAP_PATH = (
 
 ERA5_RESOLUTION_M = 27830
 ERA5_FILE_PREFIX = 'era5_monthly'
-ERA5_BANDS_TO_REPORT = ['total_precipitation', 'mean_2m_air_temperature']
-CSV_BANDS_TO_DISPLAY = ['mean_precip (mm)', 'mean_2m_air_temp (K)']
-# TODO: convert this to use GEE directly to extract values, use ee_sampler as example
+ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
+ERA5_MEAN_AIR_TEMP_BAND_NAME = 'mean_2m_air_temperature'
+ERA5_BANDS_TO_REPORT = [
+    ERA5_TOTAL_PRECIP_BAND_NAME, ERA5_MEAN_AIR_TEMP_BAND_NAME]
+CSV_BANDS_TO_DISPLAY = ['mean_precip (mm)', 'mean_2m_air_temp (C)']
+CSV_BANDS_SCALAR_CONVERSION = [
+    lambda precip_m: precip_m*1000, lambda K_val: K_val-273.15]
 
 
 def main():
@@ -92,11 +96,12 @@ def main():
         for payload in mean_per_band.getInfo():
             table_file.write(
                 f'{payload[0]}-{payload[1]:02d},' +
-                ','.join([str(x) for x in payload[2:]]) +
+                ','.join([_conv(str(x)) for x, _conv in
+                          zip(payload[2:], CSV_BANDS_SCALAR_CONVERSION)]) +
                 '\n')
 
     era5_monthly_precp_collection = era5_monthly_collection.select(
-        'total_precipitation').toBands()
+        ERA5_TOTAL_PRECIP_BAND_NAME).toBands()
     era5_precip_sum = era5_monthly_precp_collection.reduce('sum').clip(
         ee_poly).mask(poly_mask)
     url = era5_precip_sum.getDownloadUrl({
@@ -111,7 +116,7 @@ def main():
         fd.write(response.content)
 
     era5_monthly_temp_collection = era5_monthly_collection.select(
-        'mean_2m_air_temperature').toBands()
+        ERA5_MEAN_AIR_TEMP_BAND_NAME).toBands()
     era5_temp_mean = era5_monthly_temp_collection.reduce('mean').clip(
         ee_poly).mask(poly_mask)
     url = era5_temp_mean.getDownloadUrl({
