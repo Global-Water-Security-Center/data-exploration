@@ -96,21 +96,21 @@ def main():
         for payload in mean_per_band.getInfo():
             table_file.write(
                 f'{payload[0]}-{payload[1]:02d},' +
-                ','.join([_conv(str(x)) for x, _conv in
+                ','.join([str(_conv(x)) for x, _conv in
                           zip(payload[2:], CSV_BANDS_SCALAR_CONVERSION)]) +
                 '\n')
 
     era5_monthly_precp_collection = era5_monthly_collection.select(
         ERA5_TOTAL_PRECIP_BAND_NAME).toBands()
     era5_precip_sum = era5_monthly_precp_collection.reduce('sum').clip(
-        ee_poly).mask(poly_mask)
+        ee_poly).mask(poly_mask).multiply(1000)
     url = era5_precip_sum.getDownloadUrl({
         'region': ee_poly.geometry().bounds(),
         'scale': ERA5_RESOLUTION_M,
         'format': 'GEO_TIFF'
     })
     response = requests.get(url)
-    precip_path = f"{vector_basename}_precip_sum_{args.start_date}_{args.end_date}.tif"
+    precip_path = f"{vector_basename}_precip_mm_sum_{args.start_date}_{args.end_date}.tif"
     print(f'calculate total precip sum to {precip_path}')
     with open(precip_path, 'wb') as fd:
         fd.write(response.content)
@@ -118,14 +118,14 @@ def main():
     era5_monthly_temp_collection = era5_monthly_collection.select(
         ERA5_MEAN_AIR_TEMP_BAND_NAME).toBands()
     era5_temp_mean = era5_monthly_temp_collection.reduce('mean').clip(
-        ee_poly).mask(poly_mask)
+        ee_poly).mask(poly_mask).subtract(273.15)
     url = era5_temp_mean.getDownloadUrl({
         'region': ee_poly.geometry().bounds(),
         'scale': ERA5_RESOLUTION_M,
         'format': 'GEO_TIFF'
     })
     response = requests.get(url)
-    temp_path = f"{vector_basename}_temp_mean_{args.start_date}_{args.end_date}.tif"
+    temp_path = f"{vector_basename}_temp_C_monthly_mean_{args.start_date}_{args.end_date}.tif"
     print(f'calculate mean temp to {temp_path}')
     with open(temp_path, 'wb') as fd:
         fd.write(response.content)
