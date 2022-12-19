@@ -22,10 +22,6 @@ import geemap
 import geopandas
 import requests
 
-WEBDAP_PATH = (
-    'http://h2o-sandbox1.aer-aws-nonprod.net/'
-    'thredds/dodsC/era5/normal-prcp-temp.nc')
-
 ERA5_RESOLUTION_M = 27830
 ERA5_FILE_PREFIX = 'era5_monthly'
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
