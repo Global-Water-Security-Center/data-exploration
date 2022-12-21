@@ -92,7 +92,7 @@ def main():
                 url_fetch_worker_list.append(
                     executor.submit(
                         save_raster, monthly_rain_event_image, land_mask,
-                        ee_poly, TARGET_RESOLUTION, precip_path))
+                        ee_poly, resolution_in_m, precip_path))
 
         for future in url_fetch_worker_list:
             try:
