@@ -48,7 +48,7 @@ def main():
     ee.Initialize()
 
     # countries.gpkg can be downloaded from https://github.com/tsamsonov/r-geo-course/blob/master/data/ne/countries.gpkg
-    countries_vector = geopandas.read_file('countries.gpkg')
+    countries_vector = geopandas.read_file('base_data/countries.gpkg')
     country_shape = countries_vector[
         countries_vector.name == args.country_name]
     local_shapefile_path = '_local_ok_to_delete.shp'
@@ -99,40 +99,12 @@ def main():
         for future, year in query_by_year_list:
             print(f'waiting for year {year} to process')
             value_by_date = future.result()
-            #print(value_by_date)
             for values, date in zip(value_by_date, date_by_year_lists[year]):
                 csv_table.write(f'{date},')
                 for field_name in header_fields:
                     csv_table.write(f'{values[field_name]},')
                 csv_table.write('\n')
     print('done!')
-
-# percentClip.evaluate(function (percentClipLocal, error) {
-#   if (error) {
-#     // Report a computation failure
-#     print(error);
-#     return;
-#   }
-
-#   print(percentClipLocal);
-#   var palette = ['#00abff','#95bd00','e5e700','#cc2900','#a400c3'];
-#   var viz = {
-#     palette: palette,
-#     // This uses JavaScript object manipulation, not EE methods, because it's a local value.
-#     min: percentClipLocal['v_p1'],
-#     max: percentClipLocal['v_p99'],
-#   };
-
-#   Map.addLayer(aod_ca, viz, 'ca aod');
-# });
-
-    # for band_id in band_names:
-    #     .select('tasmin').clip(ee_poly)
-    # mean_air_temp = gddp_dataset.reduceRegion(**{
-    #     'reducer': ee.Reducer.mean(),
-    #     'geometry': ee_poly})
-    # print(mean_air_temp.getInfo())
-
 
 if __name__ == '__main__':
     main()
