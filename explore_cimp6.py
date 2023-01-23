@@ -1,5 +1,13 @@
+"""Script to explore the API to extract CIMP6 data.
+
+Here are good references for table and variable names:
+
+table for listing all the "variables" in cmip 6 https://docs.google.com/spreadsheets/d/1UUtoz6Ofyjlpx5LdqhKcwHFz2SGoTQV2_yekHyMfL9Y/edit#gid=1221485271
+tier1 experiments: https://docs.google.com/spreadsheets/d/1SktYsKYhRxQFjUsGYbKxu6G4egpQePbQ1Y5bgERRg3M/edit#gid=1894225558
+tier 2 experiments: https://docs.google.com/spreadsheets/d/1RyOMbaCLjF4ffEQ3VB4E7DTOwiZwNuF1vxHm-fQ26pw/edit#gid=197844184
+tier 3 experiments: https://docs.google.com/spreadsheets/d/1N7U6_Hi4yvojOUlXS3bGgTExoX6R1d9DpqGMbg5zMms/edit#gid=2049219682
+"""
 import intake
-import xarray as xr
 import proplot as plot
 import matplotlib.pyplot as plt
 
