@@ -2,6 +2,8 @@
 import argparse
 import os
 import concurrent
+import shutil
+import tempfile
 
 import ee
 import geemap
@@ -46,7 +48,9 @@ def main():
 
     # convert to GEE polygon
     gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
-    local_shapefile_path = '_local_ok_to_delete.shp'
+    workspace_dir = tempfile.mkdtemp(prefix='ok_to_delete_')
+    local_shapefile_path = os.path.join(
+        workspace_dir, '_local_ok_to_delete.shp')
     gp_poly.to_file(local_shapefile_path)
     gp_poly = None
     ee_poly = geemap.shp_to_ee(local_shapefile_path)
@@ -58,12 +62,19 @@ def main():
         'discrete_classification').toBands().eq(200).Not()
 
     poly_mask = land_mask.clip(ee_poly)
-    #save_raster(poly_mask, ee_poly, 1000, 'mask.tif')
+    land_pixel_count_reducer = poly_mask.reduceRegion(**{
+        'reducer': 'sum',
+        'geometry': ee_poly,
+        'maxPixels': 1e15,
+        })
+    land_pixel_count = land_pixel_count_reducer.getInfo()[
+        '2018_discrete_classification']
+    print(land_pixel_count)
 
     url_fetch_worker_list = []
-
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        for id, dataset, band_id, resolution_in_m, scale_factor in DATASETS:
+        for dataset_id, dataset, band_id, resolution_in_m, scale_factor in DATASETS:
+            precip_count_list = ee.List([])
             base_collection = ee.ImageCollection(dataset)
             for month_val, day_in_month in zip(month_list, days_in_month_list):
                 monthly_rain_event_image = ee.Image.constant(0).mask(poly_mask)
@@ -74,31 +85,48 @@ def main():
                         start_date, end_date)
                     daily_precip = month_collection.select(
                         band_id).toBands().multiply(scale_factor)  # convert to mm
-                    daily_precip = daily_precip.where(
+                    daily_precip_events = daily_precip.where(
                         daily_precip.lt(args.rain_event_threshold), 0).where(
                         daily_precip.gte(args.rain_event_threshold), 1)
 
-                    precip_event_sum = daily_precip.reduce('sum').clip(
+                    precip_event_sum = daily_precip_events.reduce('sum').clip(
                         ee_poly).mask(poly_mask)
+
                     monthly_rain_event_image = monthly_rain_event_image.add(
                         precip_event_sum)
+
+                    # calcualte the average number of precip events in the area
+                    precip_count_redcucer = precip_event_sum.reduceRegion(**{
+                        'reducer': 'sum',
+                        'geometry': ee_poly,
+                        'maxPixels': 1e15,
+                        })
+                    precip_count_list = precip_count_list.add((f'{year}-{month_val}', precip_count_redcucer))
 
                 monthly_rain_event_image = monthly_rain_event_image.divide(
                     args.end_year+1-args.start_year)
 
                 vector_basename = os.path.basename(os.path.splitext(args.path_to_watersheds)[0])
-                precip_path = f"{vector_basename}_{id}_avg_precip_events_{args.start_year}_{args.end_year}_{month_val}_{args.rain_event_threshold}.tif"
+                precip_path = f"{vector_basename}_{dataset_id}_avg_precip_events_{args.start_year}_{args.end_year}_{month_val}_{args.rain_event_threshold}.tif"
 
                 url_fetch_worker_list.append(
                     executor.submit(
                         save_raster, monthly_rain_event_image, land_mask,
                         ee_poly, resolution_in_m, precip_path))
 
+            table_path = f"{vector_basename}_{dataset_id}_avg_precip_events_{args.start_year}_{args.end_year}_{args.rain_event_threshold}.csv"
+            with open(table_path, 'w') as table_file:
+                table_file.write('date,avg rain events over area\n')
+                for index, (date, precip_count_sum) in enumerate(sorted(precip_count_list.getInfo())):
+                    table_file.write(f'''{date},{
+                        precip_count_sum["sum"]/land_pixel_count}\n''')
+
         for future in url_fetch_worker_list:
             try:
                 _ = future.result()
             except Exception as exc:
                 print('generated an exception: %s' % (exc))
+    shutil.rmtree(workspace_dir)
 
 
 def save_raster(image, mask, region, scale, target_path):
