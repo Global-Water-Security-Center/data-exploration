@@ -6,16 +6,12 @@ import collections
 
 import ee
 import geemap
-from rasterio.transform import Affine
 import geopandas
-import numpy
-import pandas
-import rasterio
-import xarray
 
-COUNTRY_NAME = 'Kenya'
-START_DATE = '2012-01-01'
-END_DATE = '2022-03-01'
+
+DATASET_ID = 'NASA/NEX-GDDP'
+DATASET_CRS = 'EPSG:4326'
+DATASET_SCALE = 27830
 
 
 def main():
@@ -70,11 +66,14 @@ def main():
             for date in date_list:
                 reduction_collection = None
                 for reduction_id in reduction_types:
-                    gddp_dataset = ee.ImageCollection('NASA/NEX-GDDP').filter(
-                        ee.Filter.date(date)).reduce(reduction_id)
+                    gddp_dataset = ee.ImageCollection(DATASET_ID).filter(
+                        ee.Filter.date(date)).select(band_names).reduce(
+                        reduction_id)
                     reduced_value = gddp_dataset.reduceRegion(**{
                         'reducer': 'mean',
-                        'geometry': ee_poly
+                        'geometry': ee_poly,
+                        'crs': DATASET_CRS,
+                        'scale': DATASET_SCALE,
                         })
                     if not reduction_collection:
                         reduction_collection = reduced_value
@@ -105,6 +104,7 @@ def main():
                     csv_table.write(f'{values[field_name]},')
                 csv_table.write('\n')
     print('done!')
+
 
 if __name__ == '__main__':
     main()
