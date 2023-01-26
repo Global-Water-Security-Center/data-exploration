@@ -19,7 +19,7 @@ days_in_month_list = [
 
 # (ID, DATASET, BAND ID, RESOLUTION IN M, SCALE FACTOR)
 DATASETS = [
-    ('ERA5', 'ECMWF/ERA5/DAILY', 'total_precipitation', 27830, 1000.0),
+    #('ERA5', 'ECMWF/ERA5/DAILY', 'total_precipitation', 27830, 1000.0),
     ('CHIRPS', 'UCSB-CHG/CHIRPS/DAILY', 'precipitation', 5566, 1),
     ]
 
@@ -69,18 +69,22 @@ def main():
         })
     land_pixel_count = land_pixel_count_reducer.getInfo()[
         '2018_discrete_classification']
-    print(land_pixel_count)
 
     url_fetch_worker_list = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         for dataset_id, dataset, band_id, resolution_in_m, scale_factor in DATASETS:
             precip_count_list = ee.List([])
             base_collection = ee.ImageCollection(dataset)
-            for month_val, day_in_month in zip(month_list, days_in_month_list):
+            precip_event_exeuctors = []
+            for month_val in range(1, 13):
+                precip_event_list = ee.List([])
                 monthly_rain_event_image = ee.Image.constant(0).mask(poly_mask)
-                for year in range(args.start_year, args.end_year+1):
-                    start_date = f'{year}-{month_val}-01'
-                    end_date = f'{year}-{month_val}-{day_in_month}'
+                for year_val in range(args.start_year, args.end_year+1):
+                    start_date = f'{year_val}-{month_val:02d}-01'
+                    if month_val < 12:
+                        end_date = f'{year_val}-{month_val+1:02d}-01'
+                    else:
+                        end_date = f'{year_val+1}-01-01'
                     month_collection = base_collection.filterDate(
                         start_date, end_date)
                     daily_precip = month_collection.select(
@@ -88,7 +92,6 @@ def main():
                     daily_precip_events = daily_precip.where(
                         daily_precip.lt(args.rain_event_threshold), 0).where(
                         daily_precip.gte(args.rain_event_threshold), 1)
-
                     precip_event_sum = daily_precip_events.reduce('sum').clip(
                         ee_poly).mask(poly_mask)
 
@@ -101,8 +104,22 @@ def main():
                         'geometry': ee_poly,
                         'maxPixels': 1e15,
                         })
-                    precip_count_list = precip_count_list.add((f'{year}-{month_val}', precip_count_redcucer))
+                    precip_count_list = precip_count_list.add((f'{year_val}-{month_val}', precip_count_redcucer))
 
+                    for day_val in range(1, int(days_in_month_list[month_val-1])+1):
+                        date = f'{year_val}-{month_val}-{day_val}'
+                        day_precip_events = daily_precip_events.select(
+                            f'{year_val}{month_val:02d}{day_val:02d}_precipitation')
+                        sum_of_events = day_precip_events.reduceRegion(**{
+                            'reducer': ee.Reducer.anyNonZero(),
+                            'geometry': ee_poly,
+                            'maxPixels': 1e15,
+                            })
+                        precip_event_list = precip_event_list.add(
+                            (date, sum_of_events))
+                    precip_event_exeuctors.append(
+                        (executor.submit(
+                         lambda x: x.getInfo(), precip_event_list), f'{year_val}-{month_val}'))
                 monthly_rain_event_image = monthly_rain_event_image.divide(
                     args.end_year+1-args.start_year)
 
@@ -121,6 +138,19 @@ def main():
                     table_file.write(f'''{date},{
                         precip_count_sum["sum"]/land_pixel_count}\n''')
 
+            table_path = f"{vector_basename}_{dataset_id}_precip_event_days_{args.start_year}_{args.end_year}_{args.rain_event_threshold}.csv"
+            print(f'writing {table_path}')
+            with open(table_path, 'w') as table_file:
+                precip_event_list = []
+                for future, year_month_val in precip_event_exeuctors:
+                    print(f'calculating events for year/month {year_month_val}')
+                    precip_event_list.extend(future.result())
+
+                table_file.write('date,precip threshold event\n')
+                for index, (date, precip_event) in enumerate(sorted(precip_event_list)):
+                    table_file.write(f'''{date},{
+                        next(iter(precip_event.values()))}\n''')
+
         for future in url_fetch_worker_list:
             try:
                 _ = future.result()
@@ -131,7 +161,6 @@ def main():
 
 def save_raster(image, mask, region, scale, target_path):
     """Write `url` to `target_path`."""
-    print(scale)
     url = image.reduceResolution(
         **{'reducer': ee.Reducer.max()}).mask(mask).getDownloadUrl(
             {
