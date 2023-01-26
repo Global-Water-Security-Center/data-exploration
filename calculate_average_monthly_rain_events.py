@@ -27,8 +27,14 @@ TARGET_RESOLUTION = max([x[3] for x in DATASETS])
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Monthly rain events by watershed in an average yearly range.')
+    parser = argparse.ArgumentParser(description=(
+        'Monthly rain events by watershed in an average yearly range. '
+        'Output includes average yearly rasters by month indicating average '
+        'number of rainfall events > than the given rain event threshold per '
+        'pixel.  Two additional tables include average number of precip '
+        'events over the area of interest per month, and a daily table '
+        'indicating a "1" if that day had a rain event greater than the '
+        'provided threshold, and 0 if not.')
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument('start_year', type=int, help='start year YYYY')
