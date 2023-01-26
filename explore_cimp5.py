@@ -72,25 +72,29 @@ def main():
     with concurrent.futures.ThreadPoolExecutor() as executor:
         value_by_year = []
         for year, date_list in date_by_year_lists.items():
+            models_by_date = []
+            for date in date_list:
+                models_by_date.append(executor.submit(lambda date_dataset: [
+                    x['properties']['model']
+                    for x in date_dataset.getInfo()['features']],
+                    base_dataset.filter(ee.Filter.date(date))))
             print(f'setting up year {year}')
-            year_dataset = base_dataset.filter(ee.Filter.date(f'{year}-01-01'))
-            model_list = [
-                x['properties']['model']
-                for x in year_dataset.getInfo()['features']]
-            print(model_list)
-            value_by_date = ee.List([])  # each entry is a date this year
+            value_by_date = []  # each entry is a date this year
             for date in date_list:
                 if year < 2006:
                     scenario_list = ['historical']
                 else:
                     scenario_list = ['rcp45', 'rcp85']
+                model_list = models_by_date.pop(0).result()
+                date_dataset = base_dataset.filter(ee.Filter.date(date))
                 value_by_scenario = ee.Dictionary({})
                 for scenario_id in scenario_list:
+                    scenario_dataset = date_dataset.filter(
+                        ee.Filter.eq('scenario', scenario_id))
                     value_by_model = ee.Dictionary({})
                     for model_id in model_list:
-                        asset_id = f'NASA/NEX-GDDP/{scenario_id}_{model_id}_{date.replace("-", "")}'
-                        asset = ee.Image(asset_id)
-
+                        asset = scenario_dataset.filter(
+                            ee.Filter.eq('model', model_id)).first()
                         reduced_value = asset.reduceRegion(**{
                             'reducer': 'mean',
                             'geometry': ee_poly,
@@ -101,10 +105,11 @@ def main():
                             model_id, reduced_value)
                     value_by_scenario = value_by_scenario.set(
                         scenario_id, value_by_model)
-                value_by_date = value_by_date.add(
-                    (value_by_scenario, date))
-            value_by_year.append(
-                (executor.submit(lambda x: x.getInfo(), value_by_date), year))
+                value_by_date.append((executor.submit(
+                    lambda x: x.getInfo(), value_by_scenario), date))
+                # value_by_date = value_by_date.add(
+                #     (value_by_scenario, date))
+            value_by_year.append((value_by_date, year))
 
     table_path = (
         f'CIMP5_{args.country_name}_{args.start_date}_{args.end_date}.csv')
@@ -121,11 +126,12 @@ def main():
         for scenario_id in SCENARIO_LIST:
             csv_table.write(f'_{scenario_id},'.join(header_fields)+f'_{scenario_id},')
         csv_table.write('\n')
-        for value_by_date_task, year in value_by_year:
+        for value_by_date, year in value_by_year:
             print(f'waiting for year {year} to process')
-            value_by_date = value_by_date_task.result()
-            for value_by_scenario, date in value_by_date:
+            for value_by_scenario_task, date in value_by_date:
+                value_by_scenario = value_by_scenario_task.result()
                 csv_table.write(f'{date},')
+                print(date)
                 for scenario_id in SCENARIO_LIST:
                     if scenario_id not in value_by_scenario:
                         csv_table.write(','.join(['n/a']*len(MODEL_LIST)*len(band_names))+',')
