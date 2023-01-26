@@ -34,7 +34,7 @@ def main():
         'pixel.  Two additional tables include average number of precip '
         'events over the area of interest per month, and a daily table '
         'indicating a "1" if that day had a rain event greater than the '
-        'provided threshold, and 0 if not.')
+        'provided threshold, and 0 if not.'))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument('start_year', type=int, help='start year YYYY')
@@ -83,9 +83,9 @@ def main():
             base_collection = ee.ImageCollection(dataset)
             precip_event_exeuctors = []
             for month_val in range(1, 13):
-                precip_event_list = ee.List([])
                 monthly_rain_event_image = ee.Image.constant(0).mask(poly_mask)
                 for year_val in range(args.start_year, args.end_year+1):
+                    precip_event_list = ee.List([])
                     start_date = f'{year_val}-{month_val:02d}-01'
                     if month_val < 12:
                         end_date = f'{year_val}-{month_val+1:02d}-01'
@@ -113,7 +113,7 @@ def main():
                     precip_count_list = precip_count_list.add((f'{year_val}-{month_val}', precip_count_redcucer))
 
                     for day_val in range(1, int(days_in_month_list[month_val-1])+1):
-                        date = f'{year_val}-{month_val}-{day_val}'
+                        date = f'{year_val}-{month_val:02d}-{day_val:02d}'
                         day_precip_events = daily_precip_events.select(
                             f'{year_val}{month_val:02d}{day_val:02d}_precipitation')
                         sum_of_events = day_precip_events.reduceRegion(**{
