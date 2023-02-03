@@ -27,13 +27,27 @@ def main():
     parser = argparse.ArgumentParser(
         description='Extract CIMP5 data from GEE.')
     parser.add_argument(
-        'country_name', help='Path to vector/shapefile of watersheds')
+        'aoi_vector_path', help='Path to vector/shapefile of area of interest')
+    parser.add_argument('--aggregate_by_field', help=(
+        'If provided, this aggregates results by the unique values found in '
+        'the field in `aoi_vector_path`'))
     parser.add_argument('start_date', type=str, help='start date YYYY-MM-DD')
     parser.add_argument('end_date', type=str, help='end date YYYY-MM-DD')
     parser.add_argument(
         '--authenticate', action='store_true',
         help='Pass this flag if you need to reauthenticate with GEE')
     args = parser.parse_args()
+    aoi_vector = geopandas.read_file(args.aoi_vector_path)
+    unique_id_set = None
+    if args.aggregate_by_field:
+        if args.aggregate_by_field not in aoi_vector:
+            raise ValueError(
+                f'`{args.aggregate_by_field}` was passed in as a query field '
+                f'but was not found in `{args.aoi_vector_path}`, but instead '
+                f'these fields are present: {", ".join(aoi_vector.columns)}')
+        unique_id_set = set(aoi_vector[args.aggregate_by_field])
+
+    return
 
     start_day = datetime.datetime.strptime(args.start_date, '%Y-%m-%d')
     end_day = datetime.datetime.strptime(args.end_date, '%Y-%m-%d')
@@ -52,7 +66,6 @@ def main():
     ee.Initialize()
 
     # countries.gpkg can be downloaded from https://github.com/tsamsonov/r-geo-course/blob/master/data/ne/countries.gpkg
-    countries_vector = geopandas.read_file('base_data/countries.gpkg')
     country_shape = countries_vector[
         countries_vector.name == args.country_name]
     workspace_dir = tempfile.mkdtemp(prefix='_ok_to_delete_', dir='.')
