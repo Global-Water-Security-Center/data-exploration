@@ -2,51 +2,67 @@
 import argparse
 import datetime
 import concurrent
-import collections
+import logging
+import sys
 import os
 import pickle
 import shutil
 import tempfile
 import time
+import threading
 
 import ee
 import geemap
 import geopandas
 
 
+logging.basicConfig(
+    level=logging.WARNING,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'),
+    stream=sys.stdout)
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.DEBUG)
+
+
 DATASET_ID = 'NASA/NEX-GDDP'
 DATASET_CRS = 'EPSG:4326'
 DATASET_SCALE = 27830
 SCENARIO_LIST = ['historical', 'rcp45', 'rcp85']
+BAND_NAMES = ['tasmin', 'tasmax', 'pr']
 MODEL_LIST = ['ACCESS1-0', 'bcc-csm1-1', 'BNU-ESM', 'CanESM2', 'CCSM4', 'CESM1-BGC', 'CNRM-CM5', 'CSIRO-Mk3-6-0', 'GFDL-CM3', 'GFDL-ESM2G', 'GFDL-ESM2M', 'inmcm4', 'IPSL-CM5A-LR', 'IPSL-CM5A-MR', 'MIROC-ESM', 'MIROC-ESM-CHEM', 'MIROC5', 'MPI-ESM-LR', 'MPI-ESM-MR', 'MRI-CGCM3', 'NorESM1-M']
 MODELS_BY_DATE_CACHEFILE = '_cimp5_models_by_date.dat'
 QUOTA_READS_PER_MINUTE = 3000
 
 
-def fetch_models_by_date(base_dataset, date_by_year_lists):
+def _throttle_query():
+    """Sleep to avoid exceeding quota request."""
+    time.sleep(1/QUOTA_READS_PER_MINUTE*60)
+
+
+def fetch_models_by_date(base_dataset, date_list):
+    """Query GEE for names of CIMP5 models for the given date_by_year list."""
     try:
         with open(MODELS_BY_DATE_CACHEFILE, 'rb') as models_by_date_file:
             models_by_date = pickle.load(models_by_date_file)
     except Exception:
         models_by_date = dict()
 
-    total_dates = sum([
-        len(date_list) for date_list in date_by_year_lists.values()])
-    print(
-        f'it will take {1/QUOTA_READS_PER_MINUTE*60*total_dates:.2f}s to '
-        f'query {total_dates} dates')
+    LOGGER.info(
+        f'it will take {1/QUOTA_READS_PER_MINUTE*60*len(date_list):.2f}s to '
+        f'query {len(date_list)} dates')
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         model_by_date_executor = {}
-        for year, date_list in date_by_year_lists.items():
-            for date in date_list:
-                if date not in models_by_date:
-                    model_by_date_executor[date] = executor.submit(
-                        lambda date_dataset: [
-                            x['properties']['model']
-                            for x in date_dataset.getInfo()['features']],
-                        base_dataset.filter(ee.Filter.date(date)))
-                    time.sleep(1/QUOTA_READS_PER_MINUTE*60)
+        for date in date_list:
+            if date not in models_by_date:
+                model_by_date_executor[date] = executor.submit(
+                    lambda date_dataset: [
+                        x['properties']['model']
+                        for x in date_dataset.getInfo()['features']],
+                    base_dataset.filter(ee.Filter.date(date)))
+                _throttle_query()
 
         # evaluate available models
         models_by_date = models_by_date | {
@@ -55,6 +71,22 @@ def fetch_models_by_date(base_dataset, date_by_year_lists):
     with open(MODELS_BY_DATE_CACHEFILE, 'wb') as models_by_date_file:
         pickle.dump(models_by_date, models_by_date_file)
     return models_by_date
+
+
+def process_date_chunk(value_by_date_dict_ee, cache_path, cache_path_lock):
+    """Process value by date dict asychronously and then save to cache."""
+    value_by_date = value_by_date_dict_ee.getInfo()
+    with cache_path_lock:
+        try:
+            # result_by_month indexes by YYYY-MM into a dictonary of dates to results
+            with open(cache_path, 'rb') as result_by_date_file:
+                cached_result_by_date = pickle.load(result_by_date_file)
+
+        except Exception:
+            cached_result_by_date = dict()
+        value_by_date = value_by_date | cached_result_by_date
+        with open(cache_path, 'wb') as result_by_date_file:
+            pickle.dump(value_by_date, result_by_date_file)
 
 
 def main():
@@ -86,14 +118,9 @@ def main():
 
     start_day = datetime.datetime.strptime(args.start_date, '%Y-%m-%d')
     end_day = datetime.datetime.strptime(args.end_date, '%Y-%m-%d')
-    date_by_year_lists = collections.defaultdict(list)
-    n_days = 0
-    for delta_day in range((end_day-start_day).days+1):
-        current_date = (
-            start_day + datetime.timedelta(days=delta_day)).strftime('%Y-%m-%d')
-        year = int(current_date[:4])
-        date_by_year_lists[year].append(current_date)
-        n_days += 1
+    date_list = [
+        (start_day + datetime.timedelta(days=delta_day)).strftime('%Y-%m-%d')
+        for delta_day in range((end_day-start_day).days+1)]
 
     if args.authenticate:
         ee.Authenticate()
@@ -105,108 +132,127 @@ def main():
     workspace_dir = tempfile.mkdtemp(prefix='_ok_to_delete_', dir='.')
     base_dataset = ee.ImageCollection(DATASET_ID)
 
-    models_by_date = fetch_models_by_date(base_dataset, date_by_year_lists)
+    #LOGGER.info('querying which models are available by date')
+    models_by_date = fetch_models_by_date(base_dataset, date_list)
 
+    result_path_by_unique_id = dict()
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        print(models_by_date)
-        return
         for unique_id_index, unique_id_value in unique_id_set:
             # create tag that's either the vector basename, or if filtering on
             # a field is requested, the basename, field, and field value
-            unique_id_tag = (
+            unique_id = (
                 vector_basename if args.aggregate_by_field is None else
                 f'{vector_basename}_{args.aggregate_by_field}_{unique_id_value}')
+            result_by_date_path = f'{unique_id}_result_by_date.dat'
+            result_path_by_unique_id[unique_id] = result_by_date_path
+            try:
+                # result_by_date indexes by YYYY-MM into a dictonary of dates to results
+                with open(result_by_date_path, 'rb') as result_by_date_file:
+                    result_by_date = pickle.load(result_by_date_file)
+                    cached_result_by_date = result_by_date.keys()
+                    result_by_date = None
+                    LOGGER.debug(f'there are {len(cached_result_by_date)} cached values')
+            except Exception:
+                LOGGER.debug('there are 0 cached values')
+                cached_result_by_date = set()
+            result_by_month_lock = threading.Lock()
 
             # save to shapefile and load into EE vector
             filtered_aoi = aoi_vector[unique_id_index]
             local_shapefile_path = os.path.join(
-                workspace_dir, f'_local_ok_to_delete_{unique_id_tag}.shp')
+                workspace_dir, f'_local_ok_to_delete_{unique_id}.shp')
             filtered_aoi = filtered_aoi.to_crs('EPSG:4326')
             filtered_aoi.to_file(local_shapefile_path)
             filtered_aoi = None
             ee_poly = geemap.shp_to_ee(local_shapefile_path)
 
-            band_names = ['tasmin', 'tasmax', 'pr']
-            print(f'querying data for {n_days} days')
-
             base_dataset = ee.ImageCollection(DATASET_ID)
-            value_by_year = []
-            for year, date_list in date_by_year_lists.items():
-                models_by_date = []
-                for date in date_list:
-                    models_by_date.append(executor.submit(lambda date_dataset: [
-                        x['properties']['model']
-                        for x in date_dataset.getInfo()['features']],
-                        base_dataset.filter(ee.Filter.date(date))))
-                print(f'setting up year {year}')
-                value_by_date = []  # each entry is a date this year
-                for date in date_list:
-                    if year < 2006:
-                        scenario_list = ['historical']
-                    else:
-                        scenario_list = ['rcp45', 'rcp85']
-                    model_list = models_by_date.pop(0).result()
-                    date_dataset = base_dataset.filter(ee.Filter.date(date))
-                    value_by_scenario = ee.Dictionary({})
-                    for scenario_id in scenario_list:
-                        scenario_dataset = date_dataset.filter(
-                            ee.Filter.eq('scenario', scenario_id))
-                        value_by_model = ee.Dictionary({})
-                        for model_id in model_list:
-                            asset = scenario_dataset.filter(
-                                ee.Filter.eq('model', model_id)).first()
-                            reduced_value = asset.reduceRegion(**{
-                                'reducer': 'mean',
-                                'geometry': ee_poly,
-                                'crs': DATASET_CRS,
-                                'scale': DATASET_SCALE,
-                                })
-                            value_by_model = value_by_model.set(
-                                model_id, reduced_value)
-                        value_by_scenario = value_by_scenario.set(
-                            scenario_id, value_by_model)
-                    value_by_date.append((executor.submit(
-                        lambda x: x.getInfo(), value_by_scenario), date))
-                value_by_year.append((value_by_date, year))
+            last_year_mo = None
+            value_by_date = ee.Dictionary({})
+            for date in date_list:
+                if date in cached_result_by_date:
+                    continue
+                year_mo = date[:7]
+                if year_mo != last_year_mo:
+                    if last_year_mo is not None:
+                        executor.submit(
+                            process_date_chunk, value_by_date,
+                            result_by_date_path, result_by_month_lock)
+                        value_by_date = ee.Dictionary({})
+                    last_year_mo = year_mo
+                    LOGGER.debug(f'processing {year_mo} for {unique_id}')
+                year = int(date[:4])
+                if year < 2006:
+                    scenario_list = ['historical']
+                else:
+                    scenario_list = ['rcp45', 'rcp85']
+                model_list = models_by_date[date]
+                date_dataset = base_dataset.filter(ee.Filter.date(date))
+                date_dataset = base_dataset
+                value_by_scenario = ee.Dictionary({})
+                for scenario_id in scenario_list:
+                    scenario_dataset = date_dataset.filter(
+                        ee.Filter.eq('scenario', scenario_id))
+                    value_by_model = ee.Dictionary({})
+                    for model_id in model_list:
+                        asset = scenario_dataset.filter(
+                            ee.Filter.eq('model', model_id)).first()
+                        reduced_value = asset.reduceRegion(**{
+                            'reducer': 'mean',
+                            'geometry': ee_poly,
+                            'crs': DATASET_CRS,
+                            'scale': DATASET_SCALE,
+                            })
+                        value_by_model = value_by_model.set(
+                            model_id, reduced_value)
+                    value_by_scenario = value_by_scenario.set(
+                        scenario_id, value_by_model)
+                value_by_date = value_by_date.set(date, value_by_scenario)
+            executor.submit(
+                process_date_chunk, value_by_date, result_by_date_path,
+                result_by_month_lock)
+            value_by_date = None
 
-            table_path = (
-                f'CIMP5_{args.country_name}_{args.start_date}_{args.end_date}.csv')
-            print(f'saving to {table_path}')
-            print(
-                f'waiting for GEE to compute, if the date range is large this '
-                f'may take a while')
+    for unique_id, result_path in result_path_by_unique_id.items():
+        with open(result_path, 'rb') as result_file:
+            value_by_date = pickle.load(result_file)
+            table_path = (f'CIMP5_{unique_id}.csv')
+            LOGGER.info(f'saving to {table_path}')
             with open(table_path, 'w') as csv_table:
                 header_fields = [
                     f'{band_id}_{model_id}'
-                    for band_id in band_names
+                    for band_id in BAND_NAMES
                     for model_id in MODEL_LIST]
                 csv_table.write('date,')
                 for scenario_id in SCENARIO_LIST:
                     csv_table.write(f'_{scenario_id},'.join(header_fields)+f'_{scenario_id},')
                 csv_table.write('\n')
-                for value_by_date, year in value_by_year:
-                    print(f'waiting for year {year} to process')
-                    for value_by_scenario_task, date in value_by_date:
-                        value_by_scenario = value_by_scenario_task.result()
-                        csv_table.write(f'{date},')
-                        print(date)
-                        for scenario_id in SCENARIO_LIST:
-                            if scenario_id not in value_by_scenario:
-                                csv_table.write(','.join(['n/a']*len(MODEL_LIST)*len(band_names))+',')
+                last_year_mo = None
+                for date in sorted(value_by_date):
+                    year_mo = date[:7]
+                    if year_mo != last_year_mo:
+                        LOGGER.info(f'processing {year_mo}')
+                        last_year_mo = year_mo
+
+                    value_by_scenario = value_by_date[date].result()
+                    csv_table.write(f'{date},')
+                    for scenario_id in SCENARIO_LIST:
+                        if scenario_id not in value_by_scenario:
+                            csv_table.write(','.join(['n/a']*len(MODEL_LIST)*len(BAND_NAMES))+',')
+                            continue
+                        value_by_model = value_by_scenario[scenario_id]
+                        for model_id in MODEL_LIST:
+                            if model_id not in value_by_model:
+                                csv_table.write(','.join(['n/a']*len(BAND_NAMES))+',')
                                 continue
-                            value_by_model = value_by_scenario[scenario_id]
-                            for model_id in MODEL_LIST:
-                                if model_id not in value_by_model:
-                                    csv_table.write(','.join(['n/a']*len(band_names))+',')
-                                    continue
-                                band_values = value_by_model[model_id]
-                                for band_id in band_names:
-                                    if band_id in band_values:
-                                        csv_table.write(f'{band_values[band_id]},')
-                                    else:
-                                        csv_table.write(f'n/a,')
-                        csv_table.write('\n')
-            print('done!')
+                            band_values = value_by_model[model_id]
+                            for band_id in BAND_NAMES:
+                                if band_id in band_values:
+                                    csv_table.write(f'{band_values[band_id]},')
+                                else:
+                                    csv_table.write(f'n/a,')
+                    csv_table.write('\n')
+            LOGGER.info('done!')
 
     aoi_vector = None
     shutil.rmtree(workspace_dir)
