@@ -129,7 +129,6 @@ def main():
 
     vector_basename = os.path.basename(os.path.splitext(
         args.aoi_vector_path)[0])
-    workspace_dir = tempfile.mkdtemp(prefix='_ok_to_delete_', dir='.')
     base_dataset = ee.ImageCollection(DATASET_ID)
 
     #LOGGER.info('querying which models are available by date')
@@ -159,12 +158,11 @@ def main():
 
             # save to shapefile and load into EE vector
             filtered_aoi = aoi_vector[unique_id_index]
-            local_shapefile_path = os.path.join(
-                workspace_dir, f'_local_ok_to_delete_{unique_id}.shp')
+            local_shapefile_path = f'_local_ok_to_delete_{unique_id}.gpkg'
             filtered_aoi = filtered_aoi.to_crs('EPSG:4326')
             filtered_aoi.to_file(local_shapefile_path)
             filtered_aoi = None
-            ee_poly = geemap.shp_to_ee(local_shapefile_path)
+            ee_poly = geemap.gpkg_to_ee(local_shapefile_path)
 
             base_dataset = ee.ImageCollection(DATASET_ID)
             last_year_mo = None
