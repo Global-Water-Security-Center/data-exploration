@@ -142,7 +142,7 @@ def main():
             unique_id = (
                 vector_basename if args.aggregate_by_field is None else
                 f'{vector_basename}_{args.aggregate_by_field}_{unique_id_value}')
-            result_by_date_path = f'{unique_id}_result_by_date.dat'
+            result_by_date_path = f'_{unique_id}_result_by_date.dat'
             result_path_by_unique_id[unique_id] = result_by_date_path
             try:
                 # result_by_date indexes by YYYY-MM into a dictonary of dates to results
@@ -158,11 +158,12 @@ def main():
 
             # save to shapefile and load into EE vector
             filtered_aoi = aoi_vector[unique_id_index]
-            local_shapefile_path = f'_local_ok_to_delete_{unique_id}.gpkg'
+            local_shapefile_path = f'_local_ok_to_delete_{unique_id}.json'
             filtered_aoi = filtered_aoi.to_crs('EPSG:4326')
             filtered_aoi.to_file(local_shapefile_path)
             filtered_aoi = None
-            ee_poly = geemap.gpkg_to_ee(local_shapefile_path)
+            ee_poly = geemap.geojson_to_ee(local_shapefile_path)
+            os.remove(local_shapefile_path)
 
             base_dataset = ee.ImageCollection(DATASET_ID)
             last_year_mo = None
@@ -178,7 +179,7 @@ def main():
                             result_by_date_path, result_by_month_lock)
                         value_by_date = ee.Dictionary({})
                     last_year_mo = year_mo
-                    LOGGER.debug(f'processing {year_mo} for {unique_id}')
+                    LOGGER.debug(f'scheduling processing {year_mo} for {unique_id}')
                 year = int(date[:4])
                 if year < 2006:
                     scenario_list = ['historical']
@@ -186,7 +187,6 @@ def main():
                     scenario_list = ['rcp45', 'rcp85']
                 model_list = models_by_date[date]
                 date_dataset = base_dataset.filter(ee.Filter.date(date))
-                date_dataset = base_dataset
                 value_by_scenario = ee.Dictionary({})
                 for scenario_id in scenario_list:
                     scenario_dataset = date_dataset.filter(
@@ -201,11 +201,16 @@ def main():
                             'crs': DATASET_CRS,
                             'scale': DATASET_SCALE,
                             })
+                        asset = None
                         value_by_model = value_by_model.set(
                             model_id, reduced_value)
+                    scenario_dataset = None
                     value_by_scenario = value_by_scenario.set(
                         scenario_id, value_by_model)
+                    value_by_model = None
                 value_by_date = value_by_date.set(date, value_by_scenario)
+                value_by_scenario = None
+                date_dataset = None
             executor.submit(
                 process_date_chunk, value_by_date, result_by_date_path,
                 result_by_month_lock)
