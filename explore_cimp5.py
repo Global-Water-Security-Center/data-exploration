@@ -2,12 +2,12 @@
 import argparse
 import datetime
 import concurrent
+import glob
 import logging
 import sys
 import os
 import pickle
 import shutil
-import tempfile
 import time
 import threading
 
@@ -25,7 +25,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
-
+CACHE_DIR = '_cimp5_cache_dir'
 DATASET_ID = 'NASA/NEX-GDDP'
 DATASET_CRS = 'EPSG:4326'
 DATASET_SCALE = 27830
@@ -73,20 +73,34 @@ def fetch_models_by_date(base_dataset, date_list):
     return models_by_date
 
 
-def process_date_chunk(value_by_date_dict_ee, cache_path, cache_path_lock):
+def process_date_chunk(ee_result, cache_file_pattern, cache_path_lock):
     """Process value by date dict asychronously and then save to cache."""
-    value_by_date = value_by_date_dict_ee.getInfo()
+    result = ee_result.getInfo()
     with cache_path_lock:
+        # search for the most recent pattern and then make a new file
         try:
-            # result_by_month indexes by YYYY-MM into a dictonary of dates to results
-            with open(cache_path, 'rb') as result_by_date_file:
-                cached_result_by_date = pickle.load(result_by_date_file)
-
+            next_index = 1 + max([
+                int(os.path.splitext(path.split('_')[-1])[0])
+                for path in glob.glob(cache_file_pattern)])
         except Exception:
-            cached_result_by_date = dict()
-        value_by_date = value_by_date | cached_result_by_date
+            next_index = 0
+        cache_path = (
+            f'{"_".join(cache_file_pattern.split("_")[:-1])}_{next_index}.dat')
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        # result_by_month indexes by YYYY-MM into a dictonary of dates to results
+        LOGGER.debug(f'writing cache file {cache_path}')
         with open(cache_path, 'wb') as result_by_date_file:
-            pickle.dump(value_by_date, result_by_date_file)
+            pickle.dump(result, result_by_date_file)
+
+
+def load_cached_results(cache_file_pattern):
+    """Load all files that match the file pattern and dump into one dictionary."""
+    cached_results = dict()
+    for file_path in glob.glob(cache_file_pattern):
+        with open(file_path, 'rb') as cache_file:
+            local_cached_results = pickle.load(cache_file)
+            cached_results = cached_results | local_cached_results
+    return cached_results
 
 
 def main():
@@ -131,10 +145,10 @@ def main():
         args.aoi_vector_path)[0])
     base_dataset = ee.ImageCollection(DATASET_ID)
 
-    #LOGGER.info('querying which models are available by date')
+    LOGGER.info('querying which models are available by date')
     models_by_date = fetch_models_by_date(base_dataset, date_list)
 
-    result_path_by_unique_id = dict()
+    result_pattern_by_unique_id = dict()
     with concurrent.futures.ThreadPoolExecutor() as executor:
         for unique_id_index, unique_id_value in unique_id_set:
             # create tag that's either the vector basename, or if filtering on
@@ -142,19 +156,14 @@ def main():
             unique_id = (
                 vector_basename if args.aggregate_by_field is None else
                 f'{vector_basename}_{args.aggregate_by_field}_{unique_id_value}')
-            result_by_date_path = f'_{unique_id}_result_by_date.dat'
-            result_path_by_unique_id[unique_id] = result_by_date_path
-            try:
-                # result_by_date indexes by YYYY-MM into a dictonary of dates to results
-                with open(result_by_date_path, 'rb') as result_by_date_file:
-                    result_by_date = pickle.load(result_by_date_file)
-                    cached_result_by_date = result_by_date.keys()
-                    result_by_date = None
-                    LOGGER.debug(f'there are {len(cached_result_by_date)} cached values')
-            except Exception:
-                LOGGER.debug('there are 0 cached values')
-                cached_result_by_date = set()
-            result_by_month_lock = threading.Lock()
+            result_by_date_pattern = os.path.join(
+                CACHE_DIR, unique_id, f'_{unique_id}_*.dat')
+            result_pattern_by_unique_id[unique_id] = result_by_date_pattern
+
+            cached_dates = load_cached_results(
+                result_by_date_pattern).keys()
+
+            process_chunk_lock = threading.Lock()
 
             # save to shapefile and load into EE vector
             filtered_aoi = aoi_vector[unique_id_index]
@@ -169,14 +178,14 @@ def main():
             last_year_mo = None
             value_by_date = ee.Dictionary({})
             for date in date_list:
-                if date in cached_result_by_date:
+                if date in cached_dates:
                     continue
                 year_mo = date[:7]
                 if year_mo != last_year_mo:
                     if last_year_mo is not None:
                         executor.submit(
                             process_date_chunk, value_by_date,
-                            result_by_date_path, result_by_month_lock)
+                            result_by_date_pattern, process_chunk_lock)
                         value_by_date = ee.Dictionary({})
                     last_year_mo = year_mo
                     LOGGER.debug(f'scheduling processing {year_mo} for {unique_id}')
@@ -212,53 +221,51 @@ def main():
                 value_by_scenario = None
                 date_dataset = None
             executor.submit(
-                process_date_chunk, value_by_date, result_by_date_path,
-                result_by_month_lock)
+                process_date_chunk, value_by_date, result_by_date_pattern,
+                process_chunk_lock)
             value_by_date = None
 
-    for unique_id, result_path in result_path_by_unique_id.items():
-        with open(result_path, 'rb') as result_file:
-            value_by_date = pickle.load(result_file)
-            table_path = (f'CIMP5_{unique_id}.csv')
-            LOGGER.info(f'saving to {table_path}')
-            with open(table_path, 'w') as csv_table:
-                header_fields = [
-                    f'{band_id}_{model_id}'
-                    for band_id in BAND_NAMES
-                    for model_id in MODEL_LIST]
-                csv_table.write('date,')
-                for scenario_id in SCENARIO_LIST:
-                    csv_table.write(f'_{scenario_id},'.join(header_fields)+f'_{scenario_id},')
-                csv_table.write('\n')
-                last_year_mo = None
-                for date in sorted(value_by_date):
-                    year_mo = date[:7]
-                    if year_mo != last_year_mo:
-                        LOGGER.info(f'processing {year_mo}')
-                        last_year_mo = year_mo
-
-                    value_by_scenario = value_by_date[date].result()
-                    csv_table.write(f'{date},')
-                    for scenario_id in SCENARIO_LIST:
-                        if scenario_id not in value_by_scenario:
-                            csv_table.write(','.join(['n/a']*len(MODEL_LIST)*len(BAND_NAMES))+',')
-                            continue
-                        value_by_model = value_by_scenario[scenario_id]
-                        for model_id in MODEL_LIST:
-                            if model_id not in value_by_model:
-                                csv_table.write(','.join(['n/a']*len(BAND_NAMES))+',')
-                                continue
-                            band_values = value_by_model[model_id]
-                            for band_id in BAND_NAMES:
-                                if band_id in band_values:
-                                    csv_table.write(f'{band_values[band_id]},')
-                                else:
-                                    csv_table.write(f'n/a,')
-                    csv_table.write('\n')
-            LOGGER.info('done!')
-
+    LOGGER.debug('all done scheduling, collecting results and writing CSVs')
     aoi_vector = None
-    shutil.rmtree(workspace_dir)
+    for unique_id, result_pattern in result_pattern_by_unique_id.items():
+        value_by_date = load_cached_results(result_pattern)
+        table_path = (f'CIMP5_{unique_id}.csv')
+        LOGGER.info(f'saving to {table_path}')
+        with open(table_path, 'w') as csv_table:
+            header_fields = [
+                f'{band_id}_{model_id}'
+                for band_id in BAND_NAMES
+                for model_id in MODEL_LIST]
+            csv_table.write('date,')
+            for scenario_id in SCENARIO_LIST:
+                csv_table.write(f'_{scenario_id},'.join(header_fields)+f'_{scenario_id},')
+            csv_table.write('\n')
+            last_year_mo = None
+            for date in sorted(value_by_date):
+                year_mo = date[:7]
+                if year_mo != last_year_mo:
+                    LOGGER.info(f'processing {year_mo}')
+                    last_year_mo = year_mo
+
+                value_by_scenario = value_by_date[date]
+                csv_table.write(f'{date},')
+                for scenario_id in SCENARIO_LIST:
+                    if scenario_id not in value_by_scenario:
+                        csv_table.write(','.join(['n/a']*len(MODEL_LIST)*len(BAND_NAMES))+',')
+                        continue
+                    value_by_model = value_by_scenario[scenario_id]
+                    for model_id in MODEL_LIST:
+                        if model_id not in value_by_model:
+                            csv_table.write(','.join(['n/a']*len(BAND_NAMES))+',')
+                            continue
+                        band_values = value_by_model[model_id]
+                        for band_id in BAND_NAMES:
+                            if band_id in band_values:
+                                csv_table.write(f'{band_values[band_id]},')
+                            else:
+                                csv_table.write(f'n/a,')
+                csv_table.write('\n')
+        LOGGER.info('done!')
 
 
 if __name__ == '__main__':
