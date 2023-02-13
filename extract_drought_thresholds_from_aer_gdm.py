@@ -21,7 +21,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
-GDM_DATASET = 'http://h2o-dev.aer-aws-nonprod.net/thredds/dodsC/gwsc/gdm'
+GDM_DATASET = 'https://h2o.aer.com/thredds/dodsC/gwsc/gdm'
 
 
 def main():

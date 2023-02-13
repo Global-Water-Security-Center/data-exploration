@@ -34,7 +34,7 @@ CSV_BANDS_TO_DISPLAY = ['mean_precip (mm)', 'mean_2m_air_temp (C)']
 CSV_BANDS_SCALAR_CONVERSION = [
     lambda precip_m: precip_m*1000, lambda K_val: K_val-273.15]
 ANNUAL_CSV_BANDS_SCALAR_CONVERSION = [
-    lambda precip_m: precip_m*1000, lambda K_val: K_val/12-273.15]
+    lambda precip_m: precip_m*1000]
 
 
 def main():
@@ -139,7 +139,7 @@ def main():
     target_table_path = f"{target_base}.csv"
     print(f'generating summary table to {target_table_path}')
     with open(target_table_path, 'w') as table_file:
-        table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY) + '\n')
+        table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY[:1]) + '\n')
         previous_year = None
         running_sum = None
         for payload in mean_per_band.getInfo():
@@ -149,11 +149,11 @@ def main():
                     table_file.write(
                         f'{previous_year},' +
                         ','.join([str(_conv(x)) for x, _conv in
-                                  zip(running_sum, ANNUAL_CSV_BANDS_SCALAR_CONVERSION)]) +
+                                  zip(running_sum, CSV_BANDS_SCALAR_CONVERSION[:1])]) +
                         '\n')
                 previous_year = year
-                running_sum = numpy.zeros(len(ANNUAL_CSV_BANDS_SCALAR_CONVERSION))
-            running_sum += payload[2:]
+                running_sum = numpy.zeros(len(CSV_BANDS_SCALAR_CONVERSION[:1]))
+            running_sum += payload[2:][:1]
 
 
 if __name__ == '__main__':
