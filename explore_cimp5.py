@@ -7,7 +7,6 @@ import logging
 import sys
 import os
 import pickle
-import shutil
 import time
 import threading
 
@@ -186,7 +185,6 @@ def main():
                         executor.submit(
                             process_date_chunk, value_by_date,
                             result_by_date_pattern, process_chunk_lock)
-                        value_by_date = ee.Dictionary({})
                     last_year_mo = year_mo
                     LOGGER.debug(f'scheduling processing {year_mo} for {unique_id}')
                 year = int(date[:4])
@@ -234,8 +232,8 @@ def main():
         with open(table_path, 'w') as csv_table:
             header_fields = [
                 f'{band_id}_{model_id}'
-                for band_id in BAND_NAMES
-                for model_id in MODEL_LIST]
+                for model_id in MODEL_LIST
+                for band_id in BAND_NAMES]
             csv_table.write('date,')
             for scenario_id in SCENARIO_LIST:
                 csv_table.write(f'_{scenario_id},'.join(header_fields)+f'_{scenario_id},')

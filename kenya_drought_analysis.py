@@ -14,6 +14,18 @@ END_DATE = '2022-03-01'
 
 
 def main():
+     parser = argparse.ArgumentParser(
+        description='Extract CIMP5 data from GEE.')
+    parser.add_argument(
+        'aoi_vector_path', help='Path to vector/shapefile of area of interest')
+    parser.add_argument('--aggregate_by_field', help=(
+        'If provided, this aggregates results by the unique values found in '
+        'the field in `aoi_vector_path`'))
+    parser.add_argument('start_date', type=str, help='start date YYYY-MM-DD')
+    parser.add_argument('end_date', type=str, help='end date YYYY-MM-DD')
+    parser.add_argument(
+        '--authenticate', action='store_true',
+        help='Pass this flag if you need to reauthenticate with GEE')
     # gdm_dataset = xarray.open_dataset('nclimdiv.nc')
     # print(gdm_dataset)
     # return
