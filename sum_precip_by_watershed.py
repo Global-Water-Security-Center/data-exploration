@@ -14,6 +14,7 @@ for the normal_sum_tp_mm value over that time period and generates two things:
    period provided.
 2) a CSV of TOTAL sum per time snapshot with the same naming convention.
 """
+import hashlib
 import argparse
 import os
 
@@ -21,6 +22,7 @@ import ee
 import geemap
 import geopandas
 import requests
+import numpy
 
 ERA5_RESOLUTION_M = 27830
 ERA5_FILE_PREFIX = 'era5_monthly'
@@ -30,7 +32,7 @@ ERA5_BANDS_TO_REPORT = [
     ERA5_TOTAL_PRECIP_BAND_NAME, ERA5_MEAN_AIR_TEMP_BAND_NAME]
 CSV_BANDS_TO_DISPLAY = ['mean_precip (mm)', 'mean_2m_air_temp (C)']
 CSV_BANDS_SCALAR_CONVERSION = [
-    lambda precip_m: precip_m*1000, lambda K_val: K_val-273.15]
+    lambda precip_m: precip_m*1000, lambda K_val: K_val/12-273.15]
 
 
 def main():
@@ -54,10 +56,14 @@ def main():
 
     # convert to GEE polygon
     gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
-    local_shapefile_path = '_local_ok_to_delete.shp'
+    unique_id = hashlib.md5((
+        args.path_to_watersheds+args.start_date+args.end_date).encode(
+        'utf-8')).hexdigest()
+    local_shapefile_path = f'_local_ok_to_delete_{unique_id}.json'
     gp_poly.to_file(local_shapefile_path)
     gp_poly = None
-    ee_poly = geemap.shp_to_ee(local_shapefile_path)
+    ee_poly = geemap.geojson_to_ee(local_shapefile_path)
+    os.remove(local_shapefile_path)
 
     era5_monthly_collection = ee.ImageCollection("ECMWF/ERA5/MONTHLY")
     era5_monthly_collection = era5_monthly_collection.filterDate(
@@ -84,7 +90,7 @@ def main():
 
     vector_basename = os.path.splitext(
         os.path.basename(args.path_to_watersheds))[0]
-    target_base = f"{vector_basename}_precip_temp_mean_{args.start_date}_{args.end_date}"
+    target_base = f"{vector_basename}_monthly_precip_temp_mean_{args.start_date}_{args.end_date}"
     target_table_path = f"{target_base}.csv"
     print(f'generating summary table to {target_table_path}')
     with open(target_table_path, 'w') as table_file:
@@ -125,6 +131,27 @@ def main():
     print(f'calculate mean temp to {temp_path}')
     with open(temp_path, 'wb') as fd:
         fd.write(response.content)
+
+    # get annual mean of precip
+    target_base = f"{vector_basename}_annual_precip_mean_{args.start_date}_{args.end_date}"
+    target_table_path = f"{target_base}.csv"
+    print(f'generating summary table to {target_table_path}')
+    with open(target_table_path, 'w') as table_file:
+        table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY) + '\n')
+        previous_year = None
+        running_sum = None
+        for payload in mean_per_band.getInfo():
+            year = payload[0]
+            if previous_year != year:
+                if previous_year is not None:
+                    table_file.write(
+                        f'{previous_year},' +
+                        ','.join([str(_conv(x)) for x, _conv in
+                                  zip(running_sum, ANNUAL_CSV_BANDS_SCALAR_CONVERSION)]) +
+                        '\n')
+                previous_year = year
+                running_sum = numpy.zeros(len(ANNUAL_CSV_BANDS_SCALAR_CONVERSION))
+            running_sum += payload[2:]
 
 
 if __name__ == '__main__':
