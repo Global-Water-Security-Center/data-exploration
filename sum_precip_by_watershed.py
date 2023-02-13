@@ -32,6 +32,8 @@ ERA5_BANDS_TO_REPORT = [
     ERA5_TOTAL_PRECIP_BAND_NAME, ERA5_MEAN_AIR_TEMP_BAND_NAME]
 CSV_BANDS_TO_DISPLAY = ['mean_precip (mm)', 'mean_2m_air_temp (C)']
 CSV_BANDS_SCALAR_CONVERSION = [
+    lambda precip_m: precip_m*1000, lambda K_val: K_val-273.15]
+ANNUAL_CSV_BANDS_SCALAR_CONVERSION = [
     lambda precip_m: precip_m*1000, lambda K_val: K_val/12-273.15]
 
 
