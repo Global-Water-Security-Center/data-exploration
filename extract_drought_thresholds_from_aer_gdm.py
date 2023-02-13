@@ -1,4 +1,5 @@
 """Extract drought monitoring data from user provided AOI."""
+import concurrent
 import collections
 import argparse
 import logging
@@ -47,52 +48,51 @@ def main():
     lat_slice = slice(float(maxy), float(miny))
     # lng slice is from -180 to 180 so min first
     lon_slice = slice(float(minx), float(maxx))
-    LOGGER.debug(lat_slice)
-    LOGGER.debug(lon_slice)
 
+    LOGGER.info(f'preprocess {GDM_DATASET}')
     gdm_dataset = xarray.open_dataset(GDM_DATASET)
     gdm_dataset['time'] = pandas.DatetimeIndex(gdm_dataset.time.str.decode('utf-8').astype('datetime64'))
     local_slice = gdm_dataset.sel(lat=lat_slice, lon=lon_slice)
 
     # add a mask that counts the number of valid pixels
     dims = (local_slice.dims['lon'], local_slice.dims['lat'])
-    LOGGER.debug(dims)
     one_mask = xarray.DataArray(numpy.ones(dims), dims=['lon', 'lat'])
     local_slice['mask'] = one_mask
 
     table_path = f'drought_info_raw_{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_{args.start_date}_{args.end_date}.csv'
     drought_months = collections.defaultdict(lambda: collections.defaultdict(int))
     year_set = set()
+    LOGGER.info('start processing')
     with open(table_path, 'w') as table_file:
         table_file.write('date,total_pixels,D0_-_Abnormally_Dry,D1_-_Moderate_Drought,D2_-_Severe_Drought,D3_-_Extreme_Drought,D4_-_Exceptional_Drought,\n')
-        for month in date_range:
-            LOGGER.info(f'processing {month}')
-            year_set.add(month.year)
-            table_file.write(f'{month.strftime("%Y-%m")}')
-            LOGGER.debug('sel time')
-            month_slice = local_slice.sel(time=month)
-            LOGGER.debug('set dims')
-            month_slice = month_slice.rio.set_spatial_dims(x_dim='lon', y_dim='lat')
-            LOGGER.debug('sel crs')
-            month_slice = month_slice.rio.write_crs('EPSG:4326')
-            LOGGER.debug('clip')
-            month_slice = month_slice.rio.clip(aoi_vector.geometry.values)
-            LOGGER.debug(month_slice)
-            LOGGER.debug('sel do values')
-            LOGGER.debug(month_slice.mask)
-            area_pixels = numpy.count_nonzero(month_slice.mask.values==1)
-            table_file.write(f',{area_pixels}')
-            drought_values = month_slice.drought.values
-            for drought_flag_val in range(5):
-                drought_pixels = numpy.count_nonzero(drought_values==drought_flag_val)
-                table_file.write(f',{drought_pixels}')
-                if drought_flag_val >= 3:  # D3 or D4 category
-                    for threshold_id, area_threshold in [('1/3', 1/3), ('1/2', 1/2), ('2/3', 2/3)]:
-                        if drought_pixels/area_pixels >= area_threshold:
-                            drought_months[month.year][area_threshold] += 1
-            table_file.write('\n')
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            work_list = []
+            for month_date in date_range:
+                LOGGER.debug(f'schedule {month_date}')
+                def calc_month_values(month_date, local_slice):
+                    year_set.add(month_date.year)
+                    month_slice = local_slice.sel(time=month_date)
+                    month_slice = month_slice.rio.set_spatial_dims(x_dim='lon', y_dim='lat')
+                    month_slice = month_slice.rio.write_crs('EPSG:4326')
+                    month_slice = month_slice.rio.clip(aoi_vector.geometry.values)
+                    return month_slice
+                work_list.append((month_date, executor.submit(calc_month_values, month_date, local_slice)))
+            for month_date, result in work_list:
+                LOGGER.info(f'processing {month_date}')
+                table_file.write(f'{month_date.strftime("%Y-%m")}')
+                month_slice = result.result()
+                area_pixels = numpy.count_nonzero(month_slice.mask.values==1)
+                table_file.write(f',{area_pixels}')
+                drought_values = month_slice.drought.values
+                for drought_flag_val in range(5):
+                    drought_pixels = numpy.count_nonzero(drought_values==drought_flag_val)
+                    table_file.write(f',{drought_pixels}')
+                    if drought_flag_val >= 3:  # D3 or D4 category
+                        for threshold_id, area_threshold in [('1/3', 1/3), ('1/2', 1/2), ('2/3', 2/3)]:
+                            if drought_pixels/area_pixels >= area_threshold:
+                                drought_months[month_date.year][area_threshold] += 1
+                table_file.write('\n')
             LOGGER.debug('done')
-            break
 
     LOGGER.debug(drought_months)
     table_path = f'drought_info_by_year_{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_{args.start_date}_{args.end_date}.csv'
