@@ -25,24 +25,24 @@ GDM_DATASET = 'https://h2o.aer.com/thredds/dodsC/gwsc/gdm'
 
 
 def main():
-    # parser = argparse.ArgumentParser(
-    #     description=f'Extract drought thresholds from {GDM_DATASET}')
-    # parser.add_argument(
-    #     'aoi_vector_path', help='Path to vector/shapefile of area of interest')
-    # parser.add_argument('start_date', type=str, help='start date YYYY-MM-DD')
-    # parser.add_argument('end_date', type=str, help='end date YYYY-MM-DD')
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description=f'Extract drought thresholds from {GDM_DATASET}')
+    parser.add_argument(
+        'aoi_vector_path', help='Path to vector/shapefile of area of interest')
+    parser.add_argument('start_date', type=str, help='start date YYYY-MM-DD')
+    parser.add_argument('end_date', type=str, help='end date YYYY-MM-DD')
+    args = parser.parse_args()
 
-    aoi_vector_path = 'drycorridor.shp'
-    start_date = '1979-01-01'
-    end_date = '2021-12-21'
+    # aoi_vector_path = 'drycorridor.shp'
+    # start_date = '1979-01-01'
+    # end_date = '2021-12-21'
 
 
-    aoi_vector = geopandas.read_file(aoi_vector_path)
+    aoi_vector = geopandas.read_file(args.aoi_vector_path)
     aoi_vector = aoi_vector.to_crs('EPSG:4236')
 
     date_range = pandas.date_range(
-        start=start_date, end=end_date, freq='MS')
+        start=args.start_date, end=args.end_date, freq='MS')
 
     minx, miny, maxx, maxy = aoi_vector.total_bounds
 
@@ -61,7 +61,7 @@ def main():
     one_mask = xarray.DataArray(numpy.ones(dims), dims=['lon', 'lat'])
     local_slice['mask'] = one_mask
 
-    table_path = f'drought_info_raw_{os.path.basename(os.path.splitext(aoi_vector_path)[0])}_{start_date}_{end_date}.csv'
+    table_path = f'drought_info_raw_{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_{args.start_date}_{args.end_date}.csv'
     drought_months = collections.defaultdict(lambda: collections.defaultdict(int))
     year_set = set()
     LOGGER.info('start processing')
@@ -97,7 +97,7 @@ def main():
             LOGGER.debug('done')
 
     LOGGER.debug(drought_months)
-    table_path = f'drought_info_by_year_{os.path.basename(os.path.splitext(aoi_vector_path)[0])}_{start_date}_{end_date}.csv'
+    table_path = f'drought_info_by_year_{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_{args.start_date}_{args.end_date}.csv'
     with open(table_path, 'w') as table_file:
         table_file.write('year,n months with 1/3 drought in region,n months with 1/2 drought in region,n months with 2/3 drought in region\n')
         for year in sorted(year_set):
