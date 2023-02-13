@@ -6,13 +6,10 @@ import logging
 import sys
 import os
 
-from rasterio.transform import Affine
 import geopandas
 import numpy
 import pandas
-import rasterio
 import xarray
-import rioxarray
 
 
 logging.basicConfig(
@@ -104,45 +101,6 @@ def main():
             for threshold_id in ['1/3', '1/2', '2/3']:
                 table_file.write(f',{threshold_dict[threshold_id]}')
             table_file.write('\n')
-
-    #LOGGER.debug(numpy.unique(local_slice.time))
-    return
-
-    netcdf_path = f'{COUNTRY_NAME}_drought_{START_DATE}_{END_DATE}.nc'
-    print(f'saving to {netcdf_path}')
-    local_slice.to_netcdf(netcdf_path)
-    print(f'verifying {netcdf_path} saved correctly')
-    local_dataset = xarray.open_dataset(netcdf_path)
-    print(local_dataset)
-    return
-
-    # get exact coords for correct geotransform
-    lat_slice = gdm_dataset.sel(lat=lat_slice).lat
-    lon_slice = gdm_dataset.sel(lon=lon_slice).lon
-    xres = float((lon_slice[-1] - lon_slice[0]) / len(lon_slice))
-    yres = float((lat_slice[-1] - lat_slice[0]) / len(lat_slice))
-    transform = Affine.translation(
-        lon_slice[0], lat_slice[0]) * Affine.scale(xres, yres)
-
-    with rasterio.open(
-        f"{COUNTRY_NAME}_drought_{START_DATE}_{END_DATE}.tif",
-        mode="w",
-        driver="GTiff",
-        height=len(lat_slice),
-        width=len(lon_slice),
-        count=len(date_range),
-        dtype=numpy.uint8,
-        nodata=0,
-        crs="+proj=latlong",
-        transform=transform,
-        kwargs={
-            'tiled': 'YES',
-            'COMPRESS': 'LZW',
-            'PREDICTOR': 2}) as new_dataset:
-        for year_index in range(len(date_range)):
-            print(f'writing band {year_index} of {len(date_range)}')
-            new_dataset.write(
-                local_slice.drought[year_index, :], 1+year_index)
 
 
 if __name__ == '__main__':
