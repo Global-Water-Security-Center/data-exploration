@@ -86,13 +86,15 @@ def main():
                 area_pixels = numpy.count_nonzero(month_slice.mask.values==1)
                 table_file.write(f',{area_pixels}')
                 drought_values = month_slice.drought.values
+                pixels_by_flag = {}
                 for drought_flag_val in range(5):
                     drought_pixels = numpy.count_nonzero(drought_values==drought_flag_val)
+                    pixels_by_flag[drought_flag_val] = drought_pixels
                     table_file.write(f',{drought_pixels}')
-                    if drought_flag_val >= 3:  # D3 or D4 category
-                        for threshold_id, area_threshold in [('1/3', 1/3), ('1/2', 1/2), ('2/3', 2/3)]:
-                            if drought_pixels/area_pixels >= area_threshold:
-                                drought_months[month_date.year][area_threshold] += 1
+                drought_pixels_sum = pixels_by_flag[3]+pixels_by_flag[4]
+                for threshold_id, area_threshold in [('1/3', 1/3), ('1/2', 1/2), ('2/3', 2/3)]:
+                    if drought_pixels_sum/area_pixels >= area_threshold:
+                        drought_months[month_date.year][area_threshold] += 1
                 table_file.write('\n')
             LOGGER.debug('done')
 
