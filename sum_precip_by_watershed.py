@@ -154,7 +154,6 @@ def main():
                 previous_year = year
                 running_sum = 0
             local_val = payload[2:][0]
-            print(local_val)
             running_sum += local_val
             total_sum += local_val
             n_months += 1
