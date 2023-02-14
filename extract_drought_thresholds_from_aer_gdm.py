@@ -80,7 +80,6 @@ def main():
                     return month_slice
                 work_list.append((month_date, executor.submit(calc_month_values, month_date, local_slice)))
             for month_date, result in work_list:
-                LOGGER.info(f'processing {month_date}')
                 table_file.write(f'{month_date.strftime("%Y-%m")}')
                 month_slice = result.result()
                 area_pixels = numpy.count_nonzero(month_slice.mask.values==1)
@@ -97,9 +96,8 @@ def main():
                     if drought_pixels_sum/area_pixels >= area_threshold:
                         drought_months[month_date.year][threshold_id] += 1
                 table_file.write('\n')
-            LOGGER.debug('done')
+            LOGGER.debug('done with scheduling')
 
-    LOGGER.debug(drought_months)
     table_path = f'drought_info_by_year_{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_{args.start_date}_{args.end_date}.csv'
     with open(table_path, 'w') as table_file:
         table_file.write('year,n months with 1/3 drought in region,n months with 1/2 drought in region,n months with 2/3 drought in region\n')
