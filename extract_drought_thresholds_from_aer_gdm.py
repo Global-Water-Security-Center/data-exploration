@@ -92,9 +92,10 @@ def main():
                     pixels_by_flag[drought_flag_val] = drought_pixels
                     table_file.write(f',{drought_pixels}')
                 drought_pixels_sum = pixels_by_flag[3]+pixels_by_flag[4]
+                LOGGER.debug(f'{month_date} - {drought_pixels_sum}')
                 for threshold_id, area_threshold in [('1/3', 1/3), ('1/2', 1/2), ('2/3', 2/3)]:
                     if drought_pixels_sum/area_pixels >= area_threshold:
-                        drought_months[month_date.year][area_threshold] += 1
+                        drought_months[month_date.year][threshold_id] += 1
                 table_file.write('\n')
             LOGGER.debug('done')
 
