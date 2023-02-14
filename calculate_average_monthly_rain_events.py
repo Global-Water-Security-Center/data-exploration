@@ -5,6 +5,7 @@ import concurrent
 import shutil
 import tempfile
 
+import numpy
 import ee
 import geemap
 import geopandas
@@ -154,8 +155,8 @@ def main():
 
                 table_file.write('date,precip threshold event\n')
                 for index, (date, precip_event) in enumerate(sorted(precip_event_list)):
-                    table_file.write(f'''{date},{
-                        next(iter(precip_event.values()))}\n''')
+                    precip_val = next(iter(precip_event.values()))
+                    table_file.write(f'''{date},{precip_val}\n''')
 
         for future in url_fetch_worker_list:
             try:

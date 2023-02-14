@@ -139,21 +139,26 @@ def main():
     target_table_path = f"{target_base}.csv"
     print(f'generating summary table to {target_table_path}')
     with open(target_table_path, 'w') as table_file:
-        table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY[:1]) + '\n')
+        table_file.write(f'date,{CSV_BANDS_TO_DISPLAY[0]}\n')
         previous_year = None
-        running_sum = None
+        running_sum = 0
+        total_sum = 0
+        n_months = 0
         for payload in mean_per_band.getInfo():
             year = payload[0]
             if previous_year != year:
                 if previous_year is not None:
                     table_file.write(
-                        f'{previous_year},' +
-                        ','.join([str(_conv(x)) for x, _conv in
-                                  zip(running_sum, CSV_BANDS_SCALAR_CONVERSION[:1])]) +
-                        '\n')
+                        f'{previous_year},'
+                        f'{CSV_BANDS_SCALAR_CONVERSION[0](running_sum)}\n')
                 previous_year = year
-                running_sum = numpy.zeros(len(CSV_BANDS_SCALAR_CONVERSION[:1]))
-            running_sum += payload[2:][:1]
+                running_sum = 0
+            local_val = payload[2:][0]
+            print(local_val)
+            running_sum += local_val
+            total_sum += local_val
+            n_months += 1
+        table_file.write(f'total annual mean,{CSV_BANDS_SCALAR_CONVERSION[0](total_sum/n_months*12)}\n')
 
 
 if __name__ == '__main__':
