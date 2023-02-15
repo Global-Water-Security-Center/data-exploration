@@ -55,20 +55,21 @@ def main():
             (df['date'] <= f'{end}-12-31'))
         date_df = df[date_index]
 
-        pr_columns = [
+        historical_pr_columns = [
             col for col in df.columns if
             col != 'date' and
             'historical' in col and
             col.startswith('pr_')]
-        LOGGER.debug(pr_columns)
+        LOGGER.debug(historical_pr_columns)
 
         # convert to mm
-        pr_df = date_df[pr_columns] * 86400
-        col_rename = dict({old_name: old_name[3:] for old_name in pr_columns})
+        pr_df = date_df[historical_pr_columns] * 86400
+        col_rename = dict({old_name: old_name[3:] for old_name in historical_pr_columns})
         pr_df = pr_df.rename(columns=col_rename)
         subplot_ax = None
         fig, axes = plt.subplots(nrows=len(pr_df.columns), ncols=1, figsize=(10, 100))
         rain_threshold_val = {}
+        historical_count = {}
 
         for index, column_id in enumerate(pr_df.columns):
             subplot_ax = axes[index]
@@ -88,6 +89,7 @@ def main():
             histplot.set_xlabel('precip (mm/day)')
             histplot.set_ylabel('number of days in bin')
             plt.setp(histplot, xlim=(0, quant[.99]))
+            historical_count[column_id] = quant[.95]
             fig.subplots_adjust(left=0.2, right=.98, bottom=0.01, top=0.97)
             fig.suptitle(f"Watershed ({watershed_id}) daily precipitation {start}-{end}")
         plt.savefig(f'{watershed_id}_precip_{start}-{end}.png')
@@ -127,6 +129,14 @@ def main():
                 LOGGER.debug(threshold_df.count())
                 threshold_table.write(f',{threshold_df.count()}')
             threshold_table.write('\n')
+
+        # also do historical
+        historical_count[column_id]
+        threshold_table.write(
+            f'\nhistorical date,' + ','.join(historical_count) + '\n' + f'{start}-{end},')
+        for column_id in historical_count:
+            threshold_table.write(f',{historical_count[column_id]}')
+        threshold_table.write('\n')
         threshold_table.close()
 
 
