@@ -48,11 +48,11 @@ def main():
         # max_precip = (df.groupby('year').sum() * 86400).filter(regex=f'pr_*').max().max()
         # max_precip = float(numpy.ceil(max_precip*10)/10)
 
-        start = 1951
-        end = 2005
+        his_start = 1951
+        his_end = 2005
         date_index = (
-            (df['date'] >= f'{start}-01-01') &
-            (df['date'] <= f'{end}-12-31'))
+            (df['date'] >= f'{his_start}-01-01') &
+            (df['date'] <= f'{his_end}-12-31'))
         date_df = df[date_index]
 
         historical_pr_columns = [
@@ -89,10 +89,11 @@ def main():
             histplot.set_xlabel('precip (mm/day)')
             histplot.set_ylabel('number of days in bin')
             plt.setp(histplot, xlim=(0, quant[.99]))
-            historical_count[column_id] = quant[.95]
+            # count how many historical days >= .95 percentile
+            historical_count[column_id] = (model_df >= quant[.95]).values.sum()
             fig.subplots_adjust(left=0.2, right=.98, bottom=0.01, top=0.97)
-            fig.suptitle(f"Watershed ({watershed_id}) daily precipitation {start}-{end}")
-        plt.savefig(f'{watershed_id}_precip_{start}-{end}.png')
+            fig.suptitle(f"Watershed ({watershed_id}) daily precipitation {his_start}-{his_end}")
+        plt.savefig(f'{watershed_id}_precip_{his_start}-{his_end}.png')
 
         pr_columns = [
             col for col in df.columns if
@@ -131,9 +132,8 @@ def main():
             threshold_table.write('\n')
 
         # also do historical
-        historical_count[column_id]
         threshold_table.write(
-            f'\nhistorical date,' + ','.join(historical_count) + '\n' + f'{start}-{end},')
+            f'\nhistorical date,' + ','.join(historical_count) + '\n' + f'{his_start}-{his_end}')
         for column_id in historical_count:
             threshold_table.write(f',{historical_count[column_id]}')
         threshold_table.write('\n')
