@@ -159,16 +159,21 @@ def main():
 
     # Find the lowest mean daily temperature for each year.
     # calculate the average of these low mean daily temperatures.
-    time_range_list = [(1986, 2005, 'historical'), (2069, 2079, 'rcp45')]
-    model_by_time_range = collections.defaultdict(dict)
+    time_range_list = [
+        (1986, 2005, 'historical'),
+        (2069, 2079, 'rcp45'),
+        (2069, 2079, 'rcp85')]
+
+    workspace_dir = 'historical_temp_workspace'
+    os.makedirs(workspace_dir, exist_ok=True)
+
+    temp_model_by_time_range = collections.defaultdict(dict)
     for time_range in time_range_list:
         start_year, end_year, scenario_id = time_range
         yearly_min_by_model = collections.defaultdict(list)
         for year in range(start_year, end_year+1):
             start_day = datetime.datetime.strptime(f'{year}-01-01', '%Y-%m-%d')
-            # debug, just do one day
-            # end_day = datetime.datetime.strptime(f'{year}-12-31', '%Y-%m-%d')
-            end_day = datetime.datetime.strptime(f'{year}-02-01', '%Y-%m-%d')
+            end_day = datetime.datetime.strptime(f'{year}-12-31', '%Y-%m-%d')
             date_list = [
                 (start_day + datetime.timedelta(days=delta_day)).strftime(
                     '%Y-%m-%d')
@@ -201,25 +206,25 @@ def main():
             mean_yearly_low_temp_by_model[model_id] = (
                 ee.ImageCollection.fromImages(
                     yearly_min_by_model[model_id])).mean()
-            raster_path = f"""{vector_basename}_{
-                model_id}_{start_year}_{end_year}_{scenario_id}_mean_min_temp.tif"""
+            raster_path = os.path.join(
+                workspace_dir, f"""{vector_basename}_{
+                model_id}_{start_year}_{end_year}_{
+                scenario_id}_mean_min_temp.tif""")
             download_image(
                 mean_yearly_low_temp_by_model[model_id], ee_poly, raster_path)
-            model_by_time_range[model_id][time_range] = raster_path
+            temp_model_by_time_range[model_id][time_range] = raster_path
 
     # for each model, subtract the two time periods
-    workspace_dir = 'historical_temp_workspace'
-    os.makedirs(workspace_dir, exist_ok=True)
-    change_in_temp_list = []
+    change_in_temp_list_by_scenario = collections.defaultdict(list)
     nodata_target = -9999
     for model_id in model_list:
-        target_raster_path = os.path.join(
-            workspace_dir, f'{model_id}_change_in_temp.tif')
-        historic_temp_path = model_by_time_range[model_id][time_range_list[0]]
+        historic_temp_path = temp_model_by_time_range[model_id][time_range_list[0]]
         nodata = geoprocessing.get_raster_info(historic_temp_path)['nodata'][0]
         for future_time_range in time_range_list[1:]:
             _, _, scenario_id = future_time_range
-            future_temp_path = model_by_time_range[
+            target_raster_path = os.path.join(
+                workspace_dir, f'{model_id}_{scenario_id}_change_in_temp.tif')
+            future_temp_path = temp_model_by_time_range[
                 model_id][future_time_range]
 
             def _sub_op(raster_a, raster_b):
@@ -232,7 +237,13 @@ def main():
             geoprocessing.raster_calculator(
                 [(future_temp_path, 1), (historic_temp_path, 1)], _sub_op,
                 target_raster_path, gdal.GDT_Float32, nodata_target)
-            change_in_temp_list.append(target_raster_path)
+            change_in_temp_list_by_scenario[scenario_id].append(
+                target_raster_path)
+
+    # change_in_temp_list_by_scenario indexes by rcp45 and 85 and gives a
+    # list of all the model runs of precip in a list, now we take the mean
+    for future_time_range in time_range_list[1:]:
+        _, _, scenario_id = future_time_range
 
         def _mean_op(*raster_list):
             valid_mask = numpy.ones(raster_list[0].shape, dtype=bool)
@@ -245,12 +256,12 @@ def main():
             result[~valid_mask] = nodata_target
             return result
 
-        historic_mean_temp_difference_path = (
-            f'historic_mean_temp_difference_{scenario_id}_BASE.tif')
-        LOGGER.debug(change_in_temp_list)
+        historic_mean_temp_difference_path = os.path.join(
+            workspace_dir, f'historic_mean_temp_difference_{scenario_id}_BASE.tif')
         geoprocessing.raster_calculator(
-            [(path, 1) for path in change_in_temp_list], _mean_op,
-            historic_mean_temp_difference_path, gdal.GDT_Float32, nodata_target)
+            [(path, 1) for path in change_in_temp_list_by_scenario[
+             scenario_id]], _mean_op, historic_mean_temp_difference_path,
+            gdal.GDT_Float32, nodata_target)
 
         raster_info = geoprocessing.get_raster_info(
             historic_mean_temp_difference_path)
@@ -268,7 +279,6 @@ def main():
         LOGGER.debug(
             f'min/max for {historic_mean_temp_difference_clip_path}: '
             f'{band_min} / {band_max}')
-    os.remove(local_shapefile_path)
 
     # For any future period (for 50 years out, this would be the 10 year
     # window around 2023+50 = 2073, so 2069-2078), find the lowest mean
@@ -278,7 +288,84 @@ def main():
     # you the average change in future low daily mean temperature for that
     # model.
 
+    # Drop ACCESS1-0 – it’s super unstable for some of the runs, so better to
+    # get rid of it for all of the runs
+    # For each model, calculate historic mean annual precip
+
+    # For each model, for each future period (for 50 years out, this would be
+    # the 10 year window around 2023+50 = 2073, so 2069-2078), calculate the
+    # difference between future annual rainfall and historic mean annual
+    # precip. Divide by historic mean annual precip to get % change. You
+    # should have 10 values for each model for each future period
+
+    # For each time period and future period, take all 200 of the % change
+    # values (20 models * 10 years) and make a box plot
+
+    # calc_historical_precip(
+    #     time_range_list, models_by_date, cmip5_dataset, vector_basename,
+    #     ee_poly)
+    # os.remove(local_shapefile_path)
     LOGGER.info('done!')
+
+
+def calc_historical_precip(
+        time_range_list, models_by_date, cmip5_dataset, vector_basename,
+        ee_poly):
+    # calcualte historical precip
+    historic_time_range = time_range_list[0]
+    historic_start_year, historic_end_year, scenario_id = historic_time_range
+
+    annual_precip_list_by_model = collections.defaultdict(list)
+
+    workspace_dir = 'historical_precip_workspace'
+    os.makedirs(workspace_dir, exist_ok=True)
+    for year in range(historic_start_year, historic_end_year+1):
+        start_day = datetime.datetime.strptime(f'{year}-01-01', '%Y-%m-%d')
+        end_day = datetime.datetime.strptime(f'{year}-12-31', '%Y-%m-%d')
+
+        # for date in date_list:
+        model_list = models_by_date[start_day]
+        for model_id in model_list:
+            annual_precip = (
+                cmip5_dataset.
+                filter(ee.Filter.eq('model', model_id)).
+                filter(ee.Filter.eq('scenario', scenario_id)).
+                filter(ee.Filter.date(start_day, end_day)).
+                sum().
+                select(['pr']).
+                multiply(86400))  # convert to mm/day
+            annual_precip_list_by_model[model_id].append(annual_precip)
+
+    historic_precip_by_model = {}
+    for model_id in model_list:
+        raster_path = os.path.join(
+            workspace_dir, f'annual_precip_historical_{model_id}.tif')
+        historic_annual_precip = ee.ImageCollection.fromImages(
+            annual_precip_list_by_model[model_id]).mean()
+        download_image(historic_annual_precip, raster_path)
+        historic_precip_by_model[model_id] = raster_path
+
+    future_precip_by_model_and_year = collections.defaultdict(dict)
+    for start_year, end_year, scenario_id in time_range_list[1:]:
+        for year in range(start_year, end_year+1):
+            start_day = datetime.datetime.strptime(f'{year}-01-01', '%Y-%m-%d')
+            end_day = datetime.datetime.strptime(f'{year}-12-31', '%Y-%m-%d')
+            model_list = models_by_date[start_day]
+            for model_id in model_list:
+                future_annual_precip = (
+                    cmip5_dataset.
+                    filter(ee.Filter.eq('model', model_id)).
+                    filter(ee.Filter.eq('scenario', scenario_id)).
+                    filter(ee.Filter.date(start_day, end_day)).
+                    sum().
+                    select(['pr']).
+                    multiply(86400))  # convert to mm/day
+                raster_path = os.path.join(
+                    workspace_dir,
+                    f'annual_precip_{scenario_id}_{model_id}.tif')
+                download_image(future_annual_precip, ee_poly, raster_path)
+                future_precip_by_model_and_year[model_id][year].append(
+                    raster_path)
 
     """
         For Precip
