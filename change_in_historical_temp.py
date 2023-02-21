@@ -164,6 +164,41 @@ def main():
         (2069, 2079, 'rcp45'),
         (2069, 2079, 'rcp85')]
 
+    # calc_historical_temp(
+    #     time_range_list, models_by_date, cmip5_dataset, vector_basename,
+    #     ee_poly, local_shapefile_path)
+
+    # For any future period (for 50 years out, this would be the 10 year
+    # window around 2023+50 = 2073, so 2069-2078), find the lowest mean
+    # daily temperature for each one of those 10 years. Calculate the average
+    # future low temperature. Subtract that average future low temp from the
+    # average historic low temp calculated in the previous step. This gives
+    # you the average change in future low daily mean temperature for that
+    # model.
+
+    # Drop ACCESS1-0 – it’s super unstable for some of the runs, so better to
+    # get rid of it for all of the runs
+    # For each model, calculate historic mean annual precip
+
+    # For each model, for each future period (for 50 years out, this would be
+    # the 10 year window around 2023+50 = 2073, so 2069-2078), calculate the
+    # difference between future annual rainfall and historic mean annual
+    # precip. Divide by historic mean annual precip to get % change. You
+    # should have 10 values for each model for each future period
+
+    # For each time period and future period, take all 200 of the % change
+    # values (20 models * 10 years) and make a box plot
+
+    calc_historical_precip(
+        time_range_list, models_by_date, cmip5_dataset, vector_basename,
+        ee_poly)
+    # os.remove(local_shapefile_path)
+    LOGGER.info('done!')
+
+
+def calc_historical_temp(
+        time_range_list, models_by_date, cmip5_dataset, vector_basename,
+        ee_poly, local_shapefile_path):
     workspace_dir = 'historical_temp_workspace'
     os.makedirs(workspace_dir, exist_ok=True)
 
@@ -280,33 +315,6 @@ def main():
             f'min/max for {historic_mean_temp_difference_clip_path}: '
             f'{band_min} / {band_max}')
 
-    # For any future period (for 50 years out, this would be the 10 year
-    # window around 2023+50 = 2073, so 2069-2078), find the lowest mean
-    # daily temperature for each one of those 10 years. Calculate the average
-    # future low temperature. Subtract that average future low temp from the
-    # average historic low temp calculated in the previous step. This gives
-    # you the average change in future low daily mean temperature for that
-    # model.
-
-    # Drop ACCESS1-0 – it’s super unstable for some of the runs, so better to
-    # get rid of it for all of the runs
-    # For each model, calculate historic mean annual precip
-
-    # For each model, for each future period (for 50 years out, this would be
-    # the 10 year window around 2023+50 = 2073, so 2069-2078), calculate the
-    # difference between future annual rainfall and historic mean annual
-    # precip. Divide by historic mean annual precip to get % change. You
-    # should have 10 values for each model for each future period
-
-    # For each time period and future period, take all 200 of the % change
-    # values (20 models * 10 years) and make a box plot
-
-    calc_historical_precip(
-        time_range_list, models_by_date, cmip5_dataset, vector_basename,
-        ee_poly)
-    # os.remove(local_shapefile_path)
-    LOGGER.info('done!')
-
 
 def calc_historical_precip(
         time_range_list, models_by_date, cmip5_dataset, vector_basename,
@@ -320,8 +328,8 @@ def calc_historical_precip(
     workspace_dir = 'historical_precip_workspace'
     os.makedirs(workspace_dir, exist_ok=True)
     for year in range(historic_start_year, historic_end_year+1):
-        start_day = datetime.datetime.strptime(f'{year}-01-01', '%Y-%m-%d')
-        end_day = datetime.datetime.strptime(f'{year}-12-31', '%Y-%m-%d')
+        start_day = f'{year}-01-01'
+        end_day = f'{year}-12-31'
 
         # for date in date_list:
         model_list = models_by_date[start_day]
@@ -342,14 +350,14 @@ def calc_historical_precip(
             workspace_dir, f'annual_precip_historical_{model_id}.tif')
         historic_annual_precip = ee.ImageCollection.fromImages(
             annual_precip_list_by_model[model_id]).mean()
-        download_image(historic_annual_precip, raster_path)
+        download_image(historic_annual_precip, ee_poly, raster_path)
         historic_precip_by_model[model_id] = raster_path
 
-    future_precip_by_model_and_year = collections.defaultdict(dict)
+    future_precip_by_model_and_year = collections.defaultdict(lambda: collections.defaultdict(list))
     for start_year, end_year, scenario_id in time_range_list[1:]:
         for year in range(start_year, end_year+1):
-            start_day = datetime.datetime.strptime(f'{year}-01-01', '%Y-%m-%d')
-            end_day = datetime.datetime.strptime(f'{year}-12-31', '%Y-%m-%d')
+            start_day = f'{year}-01-01'
+            end_day = f'{year}-12-31'
             model_list = models_by_date[start_day]
             for model_id in model_list:
                 future_annual_precip = (
