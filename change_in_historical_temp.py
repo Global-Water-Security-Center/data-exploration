@@ -159,10 +159,10 @@ def main():
 
     # Find the lowest mean daily temperature for each year.
     # calculate the average of these low mean daily temperatures.
-    time_range_list = [(1986, 2005), (2069, 2079)]
+    time_range_list = [(1986, 2005, 'historical'), (2069, 2079, 'rcp45')]
     model_by_time_range = collections.defaultdict(dict)
     for time_range in time_range_list:
-        start_year, end_year = time_range
+        start_year, end_year, scenario_id = time_range
         yearly_min_by_model = collections.defaultdict(list)
         for year in range(start_year, end_year+1):
             start_day = datetime.datetime.strptime(f'{year}-01-01', '%Y-%m-%d')
@@ -181,6 +181,7 @@ def main():
                     daily_mean = (
                         cmip5_dataset.
                         filter(ee.Filter.eq('model', model_id)).
+                        filter(ee.Filter.eq('scenario', scenario_id)).
                         filter(ee.Filter.date(date)).
                         first().
                         select(['tasmax', 'tasmin']).
@@ -201,7 +202,7 @@ def main():
                 ee.ImageCollection.fromImages(
                     yearly_min_by_model[model_id])).mean()
             raster_path = f"""{vector_basename}_{
-                model_id}_{start_year}_{end_year}_mean_min_temp.tif"""
+                model_id}_{start_year}_{end_year}_{scenario_id}_mean_min_temp.tif"""
             download_image(
                 mean_yearly_low_temp_by_model[model_id], ee_poly, raster_path)
             model_by_time_range[model_id][time_range] = raster_path
@@ -214,55 +215,59 @@ def main():
     for model_id in model_list:
         target_raster_path = os.path.join(
             workspace_dir, f'{model_id}_change_in_temp.tif')
-        future_temp_path = model_by_time_range[model_id][time_range_list[-1]]
         historic_temp_path = model_by_time_range[model_id][time_range_list[0]]
-        nodata = geoprocessing.get_raster_info(future_temp_path)['nodata'][0]
+        nodata = geoprocessing.get_raster_info(historic_temp_path)['nodata'][0]
+        for future_time_range in time_range_list[1:]:
+            _, _, scenario_id = future_time_range
+            future_temp_path = model_by_time_range[
+                model_id][future_time_range]
 
-        def _sub_op(raster_a, raster_b):
-            valid_mask = (raster_a != nodata) & (raster_b != nodata)
-            result = numpy.empty(raster_a.shape, dtype=numpy.float32)
-            result[:] = nodata
-            result[valid_mask] = raster_a[valid_mask]-raster_b[valid_mask]
+            def _sub_op(raster_a, raster_b):
+                valid_mask = (raster_a != nodata) & (raster_b != nodata)
+                result = numpy.empty(raster_a.shape, dtype=numpy.float32)
+                result[:] = nodata
+                result[valid_mask] = raster_a[valid_mask]-raster_b[valid_mask]
+                return result
+
+            geoprocessing.raster_calculator(
+                [(future_temp_path, 1), (historic_temp_path, 1)], _sub_op,
+                target_raster_path, gdal.GDT_Float32, nodata_target)
+            change_in_temp_list.append(target_raster_path)
+
+        def _mean_op(*raster_list):
+            valid_mask = numpy.ones(raster_list[0].shape, dtype=bool)
+            for raster in raster_list:
+                valid_mask &= raster != nodata_target
+            result = numpy.zeros(raster_list[0].shape, dtype=numpy.float32)
+            for raster in raster_list:
+                result[valid_mask] += raster[valid_mask]
+            result[valid_mask] /= len(raster_list)
+            result[~valid_mask] = nodata_target
             return result
 
+        historic_mean_temp_difference_path = (
+            f'historic_mean_temp_difference_{scenario_id}_BASE.tif')
+        LOGGER.debug(change_in_temp_list)
         geoprocessing.raster_calculator(
-            [(future_temp_path, 1), (historic_temp_path, 1)], _sub_op,
-            target_raster_path, gdal.GDT_Float32, nodata_target)
-        change_in_temp_list.append(target_raster_path)
+            [(path, 1) for path in change_in_temp_list], _mean_op,
+            historic_mean_temp_difference_path, gdal.GDT_Float32, nodata_target)
 
-    def _mean_op(*raster_list):
-        valid_mask = numpy.ones(raster_list[0].shape, dtype=bool)
-        for raster in raster_list:
-            valid_mask &= raster != nodata_target
-        result = numpy.zeros(raster_list[0].shape, dtype=numpy.float32)
-        for raster in raster_list:
-            result[valid_mask] += raster[valid_mask]
-        result[valid_mask] /= len(raster_list)
-        result[~valid_mask] = nodata_target
-        return result
-
-    historic_mean_temp_difference_path = (
-        'historic_mean_temp_difference_BASE.tif')
-    LOGGER.debug(change_in_temp_list)
-    geoprocessing.raster_calculator(
-        [(path, 1) for path in change_in_temp_list], _mean_op,
-        historic_mean_temp_difference_path, gdal.GDT_Float32, nodata_target)
-
-    raster_info = geoprocessing.get_raster_info(historic_mean_temp_difference_path)
-    historic_mean_temp_difference_clip_path = (
-        'historic_mean_temp_difference.tif')
-    geoprocessing.warp_raster(
-        historic_mean_temp_difference_path, raster_info['pixel_size'],
-        historic_mean_temp_difference_clip_path, 'near',
-        vector_mask_options={'mask_vector_path': local_shapefile_path})
-    raster = gdal.OpenEx(
-        historic_mean_temp_difference_clip_path, gdal.OF_RASTER)
-    band = raster.GetRasterBand(1).ReadAsArray()
-    band_min = band[band != nodata_target].min()
-    band_max = band[band != nodata_target].max()
-    LOGGER.debug(
-        f'min/max for {historic_mean_temp_difference_clip_path}: '
-        f'{band_min} / {band_max}')
+        raster_info = geoprocessing.get_raster_info(
+            historic_mean_temp_difference_path)
+        historic_mean_temp_difference_clip_path = (
+            f'historic_mean_temp_difference_{scenario_id}.tif')
+        geoprocessing.warp_raster(
+            historic_mean_temp_difference_path, raster_info['pixel_size'],
+            historic_mean_temp_difference_clip_path, 'near',
+            vector_mask_options={'mask_vector_path': local_shapefile_path})
+        raster = gdal.OpenEx(
+            historic_mean_temp_difference_clip_path, gdal.OF_RASTER)
+        band = raster.GetRasterBand(1).ReadAsArray()
+        band_min = band[band != nodata_target].min()
+        band_max = band[band != nodata_target].max()
+        LOGGER.debug(
+            f'min/max for {historic_mean_temp_difference_clip_path}: '
+            f'{band_min} / {band_max}')
     os.remove(local_shapefile_path)
 
     # For any future period (for 50 years out, this would be the 10 year
