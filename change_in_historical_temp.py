@@ -191,7 +191,7 @@ def main():
 
     calc_historical_precip(
         time_range_list, models_by_date, cmip5_dataset, vector_basename,
-        ee_poly)
+        local_shapefile_path, ee_poly)
     # os.remove(local_shapefile_path)
     LOGGER.info('done!')
 
@@ -318,7 +318,7 @@ def calc_historical_temp(
 
 def calc_historical_precip(
         time_range_list, models_by_date, cmip5_dataset, vector_basename,
-        ee_poly):
+        vector_path, ee_poly):
     # calcualte historical precip
     historic_time_range = time_range_list[0]
     historic_start_year, historic_end_year, scenario_id = historic_time_range
@@ -353,7 +353,8 @@ def calc_historical_precip(
         download_image(historic_annual_precip, ee_poly, raster_path)
         historic_precip_by_model[model_id] = raster_path
 
-    future_precip_by_model_and_year = collections.defaultdict(lambda: collections.defaultdict(list))
+    future_precip_by_model_scenario_and_year = collections.defaultdict(
+        lambda: collections.defaultdict(dict))
     for start_year, end_year, scenario_id in time_range_list[1:]:
         for year in range(start_year, end_year+1):
             start_day = f'{year}-01-01'
@@ -372,8 +373,35 @@ def calc_historical_precip(
                     workspace_dir,
                     f'annual_precip_{scenario_id}_{model_id}.tif')
                 download_image(future_annual_precip, ee_poly, raster_path)
-                future_precip_by_model_and_year[model_id][year].append(
-                    raster_path)
+                future_precip_by_model_scenario_and_year[
+                    model_id][scenario_id][year] = raster_path
+
+    # rasterize watersheds onto a raster
+    vector_mask_raster_path = os.path.join(
+        workspace_dir, f'{vector_basename}.tif')
+    geoprocessing.new_raster_from_base(
+        raster_path, vector_mask_raster_path, gdal.GDT_Byte, [None])
+    geoprocessing.rasterize(
+        vector_path, vector_mask_raster_path, burn_values=[1])
+    mask_array = gdal.OpenEx(vector_mask_raster_path).ReadAsArray()
+
+    # loop through historic precip
+    for model_id, raster_path in historic_precip_by_model.items():
+        historic_array = gdal.OpenEx(raster_path, gdal.OF_RASTER).ReadAsArray()
+        raster_info = geoprocessing.get_raster_info(raster_path)
+        for start_year, end_year, scenario_id in time_range_list[1:]:
+            for year in range(start_year, end_year+1):
+                future_array = gdal.OpenEx(
+                    future_precip_by_model_scenario_and_year[
+                        model_id][scenario_id][year],
+                    gdal.OF_RASTER).ReadAsArray()
+                percent_change = future_array/historic_array
+                percent_change[mask_array != 1] = -1
+                geoprocessing.numpy_array_to_raster(
+                    percent_change, [-1], raster_info['pixel_size'],
+                    [raster_info['geotransform'][i] for i in (0, 3)],
+                    raster_info['projection_wkt'],
+                    f'percent_change_{model_id}_{year}_{scenario_id}.tif')
 
     """
         For Precip
