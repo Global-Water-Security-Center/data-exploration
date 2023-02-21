@@ -321,7 +321,8 @@ def calc_historical_precip(
         vector_path, ee_poly):
     # calcualte historical precip
     historic_time_range = time_range_list[0]
-    historic_start_year, historic_end_year, scenario_id = historic_time_range
+    historic_start_year, historic_end_year, historic_scenario_id = (
+        historic_time_range)
 
     annual_precip_list_by_model = collections.defaultdict(list)
 
@@ -337,7 +338,7 @@ def calc_historical_precip(
             annual_precip = (
                 cmip5_dataset.
                 filter(ee.Filter.eq('model', model_id)).
-                filter(ee.Filter.eq('scenario', scenario_id)).
+                filter(ee.Filter.eq('scenario', historic_scenario_id)).
                 filter(ee.Filter.date(start_day, end_day)).
                 sum().
                 select(['pr']).
@@ -356,11 +357,15 @@ def calc_historical_precip(
     future_precip_by_model_scenario_and_year = collections.defaultdict(
         lambda: collections.defaultdict(dict))
     for start_year, end_year, scenario_id in time_range_list[1:]:
+        LOGGER.debug(f'{start_year}, {end_year}, {scenario_id}')
         for year in range(start_year, end_year+1):
+            LOGGER.debug(f'working on {year}')
             start_day = f'{year}-01-01'
             end_day = f'{year}-12-31'
             model_list = models_by_date[start_day]
-            for model_id in model_list:
+            LOGGER.debug(model_list)
+            for model_id in set(model_list):
+                LOGGER.debug(f'working on model {model_id}')
                 future_annual_precip = (
                     cmip5_dataset.
                     filter(ee.Filter.eq('model', model_id)).
@@ -372,6 +377,7 @@ def calc_historical_precip(
                 raster_path = os.path.join(
                     workspace_dir,
                     f'annual_precip_{scenario_id}_{year}_{model_id}.tif')
+                LOGGER.debug(f'about to save {raster_path}')
                 download_image(future_annual_precip, ee_poly, raster_path)
                 future_precip_by_model_scenario_and_year[
                     model_id][scenario_id][year] = raster_path
