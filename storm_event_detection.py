@@ -25,6 +25,7 @@ import requests
 ERA5_RESOLUTION_M = 27830
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
 
+
 def main():
     parser = argparse.ArgumentParser(
         description='Rain events by watershed in a time range.')
@@ -74,7 +75,8 @@ def main():
     })
     response = requests.get(url)
     vector_basename = os.path.basename(os.path.splitext(args.path_to_watersheds)[0])
-    precip_path = f"{vector_basename}_precip_events_{args.start_date}_{args.end_date}.tif"
+    precip_path = f'''{vector_basename}_24hr_precip_events_{
+        args.start_date}_{args.end_date}.tif'''
     print(f'calculate total precip event {precip_path}')
     with open(precip_path, 'wb') as fd:
         fd.write(response.content)
