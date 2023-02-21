@@ -156,7 +156,7 @@ def main():
     # Find the lowest mean daily temperature for each year.
     # calculate the average of these low mean daily temperatures.
     min_by_time_range = {}
-    time_range_list = [(1986, 1987), (2069, 2070)]
+    time_range_list = [(1986, 2005), (2069, 2078)]
     for start_year, end_year in time_range_list:
         yearly_min_by_model = collections.defaultdict(list)
         for year in range(start_year, end_year+1):
