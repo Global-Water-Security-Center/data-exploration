@@ -11,10 +11,12 @@ import pickle
 import time
 import requests
 
+from osgeo import gdal
+import numpy
 import ee
 import geemap
 import geopandas
-
+from ecoshard import geoprocessing
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -104,15 +106,18 @@ def load_cached_results(cache_file_pattern):
 
 
 def download_image(image, poly_bounds, target_path):
-    url = image.getDownloadUrl({
-        'region': poly_bounds.geometry().bounds(),
-        'scale': 27830,
-        'format': 'GEO_TIFF'
-    })
-    LOGGER.debug(f'saving {target_path}')
-    response = requests.get(url)
-    with open(target_path, 'wb') as fd:
-        fd.write(response.content)
+    if not os.path.exists(target_path):
+        url = image.getDownloadUrl({
+            'region': poly_bounds.geometry().bounds(),
+            'scale': 27830,
+            'format': 'GEO_TIFF'
+        })
+        LOGGER.debug(f'saving {target_path}')
+        response = requests.get(url)
+        with open(target_path, 'wb') as fd:
+            fd.write(response.content)
+    else:
+        LOGGER.info(f'{target_path} already exists, not overwriting')
 
 
 def main():
@@ -151,13 +156,13 @@ def main():
     aoi_vector.to_file(local_shapefile_path, driver='GeoJSON')
     aoi_vector = None
     ee_poly = geemap.geojson_to_ee(local_shapefile_path)
-    os.remove(local_shapefile_path)
 
     # Find the lowest mean daily temperature for each year.
     # calculate the average of these low mean daily temperatures.
-    min_by_time_range = {}
     time_range_list = [(1986, 2005), (2069, 2079)]
-    for start_year, end_year in time_range_list:
+    model_by_time_range = collections.defaultdict(dict)
+    for time_range in time_range_list:
+        start_year, end_year = time_range
         yearly_min_by_model = collections.defaultdict(list)
         for year in range(start_year, end_year+1):
             start_day = datetime.datetime.strptime(f'{year}-01-01', '%Y-%m-%d')
@@ -165,7 +170,8 @@ def main():
             # end_day = datetime.datetime.strptime(f'{year}-12-31', '%Y-%m-%d')
             end_day = datetime.datetime.strptime(f'{year}-02-01', '%Y-%m-%d')
             date_list = [
-                (start_day + datetime.timedelta(days=delta_day)).strftime('%Y-%m-%d')
+                (start_day + datetime.timedelta(days=delta_day)).strftime(
+                    '%Y-%m-%d')
                 for delta_day in range((end_day-start_day).days+1)]
 
             daily_mean_list_by_model = collections.defaultdict(list)
@@ -190,11 +196,66 @@ def main():
 
         mean_yearly_low_temp_by_model = {}
         for model_id in model_list:
-            LOGGER.debug(f'{model_id} has {len(yearly_min_by_model[model_id])} years')
+            LOGGER.debug(
+                f'{model_id} has {len(yearly_min_by_model[model_id])} years')
             mean_yearly_low_temp_by_model[model_id] = (
-                ee.ImageCollection.fromImages(yearly_min_by_model[model_id])).mean()
-        min_by_time_range[(start_year, end_year)] = (
-            mean_yearly_low_temp_by_model)
+                ee.ImageCollection.fromImages(
+                    yearly_min_by_model[model_id])).mean()
+            raster_path = f"""{vector_basename}_{
+                model_id}_{start_year}_{end_year}_mean_min_temp.tif"""
+            download_image(
+                mean_yearly_low_temp_by_model[model_id], ee_poly, raster_path)
+            model_by_time_range[model_id][time_range] = raster_path
+
+    # for each model, subtract the two time periods
+    workspace_dir = 'historical_temp_workspace'
+    os.makedirs(workspace_dir, exist_ok=True)
+    change_in_temp_list = []
+    nodata_target = -9999
+    for model_id in model_list:
+        target_raster_path = os.path.join(
+            workspace_dir, f'{model_id}_change_in_temp.tif')
+        future_temp_path = model_by_time_range[model_id][time_range_list[-1]]
+        historic_temp_path = model_by_time_range[model_id][time_range_list[0]]
+        nodata = geoprocessing.get_raster_info(future_temp_path)['nodata'][0]
+
+        def _sub_op(raster_a, raster_b):
+            valid_mask = (raster_a != nodata) & (raster_b != nodata)
+            result = numpy.empty(raster_a.shape, dtype=numpy.float32)
+            result[:] = nodata
+            result[valid_mask] = raster_a[valid_mask]-raster_b[valid_mask]
+            return result
+
+        geoprocessing.raster_calculator(
+            [(future_temp_path, 1), (historic_temp_path, 1)], _sub_op,
+            target_raster_path, gdal.GDT_Float32, nodata_target)
+        change_in_temp_list.append(target_raster_path)
+
+    def _mean_op(*raster_list):
+        valid_mask = numpy.ones(raster_list[0].shape, dtype=bool)
+        for raster in raster_list:
+            valid_mask &= raster != nodata_target
+        result = numpy.empty(raster_list[0].shape, dtype=numpy.float32)
+        result[:] = nodata_target
+        for raster in raster_list:
+            result[valid_mask] += raster[valid_mask]
+        result[valid_mask] /= len(raster_list)
+        return result
+
+    historic_mean_temp_difference_path = (
+        'historic_mean_temp_difference_BASE.tif')
+    geoprocessing.raster_calculator(
+        [(path, 1) for path in change_in_temp_list], _mean_op,
+        historic_mean_temp_difference_path, gdal.GDT_Float32, nodata_target)
+
+    raster_info = geoprocessing.get_raster_info(historic_mean_temp_difference_path)
+    historic_mean_temp_difference_clip_path = (
+        'historic_mean_temp_difference.tif')
+    geoprocessing.warp_raster(
+        historic_mean_temp_difference_path, raster_info['pixel_size'],
+        historic_mean_temp_difference_clip_path, 'near',
+        vector_mask_options={'mask_vector_path': local_shapefile_path})
+    os.remove(local_shapefile_path)
 
     # For any future period (for 50 years out, this would be the 10 year
     # window around 2023+50 = 2073, so 2069-2078), find the lowest mean
@@ -203,53 +264,10 @@ def main():
     # average historic low temp calculated in the previous step. This gives
     # you the average change in future low daily mean temperature for that
     # model.
-    model_temp_diff_list = []
-    for model_id in model_list:
-        future_time_range = time_range_list[-1]
-        past_time_range = time_range_list[0]
-        temperature_difference = (
-            min_by_time_range[future_time_range][model_id].
-            subtract(min_by_time_range[past_time_range][model_id]))
-        model_temp_diff_list.append(temperature_difference)
-    model_mean_temp_diff = ee.ImageCollection.fromImages(
-        model_temp_diff_list).mean()
-    raster_path = f"""{vector_basename}_{
-        future_time_range}_{past_time_range}_mean_min_temp_diff.tif"""
-    download_image(model_mean_temp_diff, ee_poly, raster_path)
 
     LOGGER.info('done!')
 
     """
-    For temperature:
-        For each model we have a min daily temp and a max daily temp.
-
-        If the analysis is watershed based, you can find average values across
-        the watershed before proceeding to make the number crunching easier.
-
-        BUT if Rich is doing this distributed by grid cell, it’s actually
-        better if we take watershed averages of those final outputs
-
-        xFor the historic period (ideally 30 years ending at the most recent
-        xdata (1986-2005), but going back to 1950 is fine if that’s already
-        xcalculated), find the lowest mean daily temperature for each year.
-        xCalculate the average of these low mean daily temperatures.
-
-        For any future period (for 50 years out, this would be the 10 year
-        window around 2023+50 = 2073, so 2069-2078), find the lowest mean
-        daily temperature for each one of those 10 years. Calculate the average
-        future low temperature. Subtract that average future low temp from the
-        average historic low temp calculated in the previous step. This gives
-        you the average change in future low daily mean temperature for that
-        model.
-
-        Repeat for each model.
-            Calculate the average across all 20 models of the average change in
-            future low daily mean temperature. Note the maximum and minimum change
-            Report this average change in average low temperature, along with the
-            maximum and minimum average change in future low daily mean
-            temperature
-
-
         For Precip
         Drop ACCESS1-0 – it’s super unstable for some of the runs, so better to get rid of it for all of the runs
         For each model, calculate historic mean annual precip
