@@ -301,9 +301,9 @@ def main():
     # For each time period and future period, take all 200 of the % change
     # values (20 models * 10 years) and make a box plot
 
-    # calc_historical_precip(
-    #     time_range_list, models_by_date, cmip5_dataset, vector_basename,
-    #     ee_poly)
+    calc_historical_precip(
+        time_range_list, models_by_date, cmip5_dataset, vector_basename,
+        ee_poly)
     # os.remove(local_shapefile_path)
     LOGGER.info('done!')
 
