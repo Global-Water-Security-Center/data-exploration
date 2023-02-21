@@ -104,7 +104,7 @@ def load_cached_results(cache_file_pattern):
 
 
 def download_image(image, poly_bounds, target_path):
-    url = image.clip(poly_bounds).getDownloadUrl({
+    url = image.getDownloadUrl({
         'region': poly_bounds.geometry().bounds(),
         'scale': 27830,
         'format': 'GEO_TIFF'
@@ -134,7 +134,7 @@ def main():
 
     LOGGER.info('querying which models are available by date')
     start_day = datetime.datetime.strptime('1985-01-01', '%Y-%m-%d')
-    end_day = datetime.datetime.strptime('2005-12-31', '%Y-%m-%d')
+    end_day = datetime.datetime.strptime('2079-12-31', '%Y-%m-%d')
     date_list = [
         (start_day + datetime.timedelta(days=delta_day)).strftime('%Y-%m-%d')
         for delta_day in range((end_day-start_day).days+1)]
@@ -156,7 +156,7 @@ def main():
     # Find the lowest mean daily temperature for each year.
     # calculate the average of these low mean daily temperatures.
     min_by_time_range = {}
-    time_range_list = [(1986, 2005), (2069, 2078)]
+    time_range_list = [(1986, 2005), (2069, 2079)]
     for start_year, end_year in time_range_list:
         yearly_min_by_model = collections.defaultdict(list)
         for year in range(start_year, end_year+1):
@@ -203,16 +203,19 @@ def main():
     # average historic low temp calculated in the previous step. This gives
     # you the average change in future low daily mean temperature for that
     # model.
+    model_temp_diff_list = []
     for model_id in model_list:
         future_time_range = time_range_list[-1]
         past_time_range = time_range_list[0]
         temperature_difference = (
             min_by_time_range[future_time_range][model_id].
             subtract(min_by_time_range[past_time_range][model_id]))
-        raster_path = f"""{vector_basename}_{model_id}_{
-            future_time_range}_{past_time_range}_mean_min_temp_diff.tif"""
-        download_image(
-            temperature_difference, ee_poly, raster_path)
+        model_temp_diff_list.append(temperature_difference)
+    model_mean_temp_diff = ee.ImageCollection.fromImages(
+        model_temp_diff_list).mean()
+    raster_path = f"""{vector_basename}_{
+        future_time_range}_{past_time_range}_mean_min_temp_diff.tif"""
+    download_image(model_mean_temp_diff, ee_poly, raster_path)
 
     LOGGER.info('done!')
 
