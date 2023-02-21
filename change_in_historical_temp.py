@@ -371,7 +371,7 @@ def calc_historical_precip(
                     multiply(86400))  # convert to mm/day
                 raster_path = os.path.join(
                     workspace_dir,
-                    f'annual_precip_{scenario_id}_{model_id}.tif')
+                    f'annual_precip_{scenario_id}_{year}_{model_id}.tif')
                 download_image(future_annual_precip, ee_poly, raster_path)
                 future_precip_by_model_scenario_and_year[
                     model_id][scenario_id][year] = raster_path
@@ -398,10 +398,12 @@ def calc_historical_precip(
                 percent_change = future_array/historic_array
                 percent_change[mask_array != 1] = -1
                 geoprocessing.numpy_array_to_raster(
-                    percent_change, [-1], raster_info['pixel_size'],
+                    percent_change, -1, raster_info['pixel_size'],
                     [raster_info['geotransform'][i] for i in (0, 3)],
                     raster_info['projection_wkt'],
-                    f'percent_change_{model_id}_{year}_{scenario_id}.tif')
+                    os.path.join(
+                        workspace_dir,
+                        f'percent_change_{model_id}_{year}_{scenario_id}.tif'))
 
     """
         For Precip
