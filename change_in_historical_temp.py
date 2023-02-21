@@ -196,6 +196,13 @@ def main():
         min_by_time_range[(start_year, end_year)] = (
             mean_yearly_low_temp_by_model)
 
+    # For any future period (for 50 years out, this would be the 10 year
+    # window around 2023+50 = 2073, so 2069-2078), find the lowest mean
+    # daily temperature for each one of those 10 years. Calculate the average
+    # future low temperature. Subtract that average future low temp from the
+    # average historic low temp calculated in the previous step. This gives
+    # you the average change in future low daily mean temperature for that
+    # model.
     for model_id in model_list:
         future_time_range = time_range_list[-1]
         past_time_range = time_range_list[0]
@@ -206,15 +213,6 @@ def main():
             future_time_range}_{past_time_range}_mean_min_temp_diff.tif"""
         download_image(
             temperature_difference, ee_poly, raster_path)
-    # mean_yearly_low_temp_by_model is ready to go
-
-    # For any future period (for 50 years out, this would be the 10 year
-    # window around 2023+50 = 2073, so 2069-2078), find the lowest mean
-    # daily temperature for each one of those 10 years. Calculate the average
-    # future low temperature. Subtract that average future low temp from the
-    # average historic low temp calculated in the previous step. This gives
-    # you the average change in future low daily mean temperature for that
-    # model.
 
     LOGGER.info('done!')
 
