@@ -11,12 +11,14 @@ import pickle
 import time
 import requests
 
+from ecoshard import geoprocessing
 from osgeo import gdal
+import matplotlib.pyplot as plt
 import numpy
 import ee
 import geemap
 import geopandas
-from ecoshard import geoprocessing
+import pandas
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -386,12 +388,14 @@ def calc_historical_precip(
     vector_mask_raster_path = os.path.join(
         workspace_dir, f'{vector_basename}.tif')
     geoprocessing.new_raster_from_base(
-        raster_path, vector_mask_raster_path, gdal.GDT_Byte, [None])
+        raster_path, vector_mask_raster_path, gdal.GDT_Int64, [-1])
     geoprocessing.rasterize(
-        vector_path, vector_mask_raster_path, burn_values=[1])
+        vector_path, vector_mask_raster_path,
+        option_list=["ATTRIBUTE=HYBAS_ID"])
     mask_array = gdal.OpenEx(vector_mask_raster_path).ReadAsArray()
 
     # loop through historic precip
+    values_by_scenario = collections.defaultdict(list)
     for model_id, raster_path in historic_precip_by_model.items():
         historic_array = gdal.OpenEx(raster_path, gdal.OF_RASTER).ReadAsArray()
         raster_info = geoprocessing.get_raster_info(raster_path)
@@ -401,8 +405,9 @@ def calc_historical_precip(
                     future_precip_by_model_scenario_and_year[
                         model_id][scenario_id][year],
                     gdal.OF_RASTER).ReadAsArray()
-                percent_change = future_array/historic_array
-                percent_change[mask_array != 1] = -1
+                percent_change = (1-future_array/historic_array)*100
+                percent_change[mask_array == -1] = -1
+                values_by_scenario[scenario_id].append(percent_change[mask_array != -1].mean())
                 geoprocessing.numpy_array_to_raster(
                     percent_change, -1, raster_info['pixel_size'],
                     [raster_info['geotransform'][i] for i in (0, 3)],
@@ -410,6 +415,12 @@ def calc_historical_precip(
                     os.path.join(
                         workspace_dir,
                         f'percent_change_{model_id}_{year}_{scenario_id}.tif'))
+    LOGGER.debug(values_by_scenario)
+    df = pandas.DataFrame.from_dict(values_by_scenario)
+    boxplot = df.boxplot()
+    boxplot.set_title("Percent increase of precipitation from historical mean 1985-2005 to future 2069-2078")
+    boxplot.set_ylabel(r'% change in precip')
+    plt.savefig(f'precip_change.png')
 
     """
         For Precip
