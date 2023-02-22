@@ -388,7 +388,7 @@ def calc_historical_precip(
     vector_mask_raster_path = os.path.join(
         workspace_dir, f'{vector_basename}.tif')
     geoprocessing.new_raster_from_base(
-        raster_path, vector_mask_raster_path, gdal.GDT_Int64, [-1])
+        raster_path, vector_mask_raster_path, gdal.GDT_Float64, [-1])
     geoprocessing.rasterize(
         vector_path, vector_mask_raster_path,
         option_list=["ATTRIBUTE=HYBAS_ID"])
