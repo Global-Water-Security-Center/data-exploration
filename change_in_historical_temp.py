@@ -394,11 +394,24 @@ def calc_historical_precip(
         option_list=["ATTRIBUTE=HYBAS_ID"])
     mask_array = gdal.OpenEx(vector_mask_raster_path).ReadAsArray()
 
+    watershed_id_to_name = {
+        4030050220: 'Amu Darya',
+        2030065840: 'Atrek',
+        4030050230: 'Balkhash-Alakol',
+        3030001840: 'Ob',
+        4030050240: 'Syr Darya',
+        4030050210: 'Tarim',
+        2030066850: 'Ural-Emba',
+        }
+
     # loop through historic precip
-    values_by_scenario = collections.defaultdict(list)
+    data_by_scenario = {}
+    values_by_scenario_then_watershed = collections.defaultdict(
+        lambda: collections.defaultdict(list))
     for model_id, raster_path in historic_precip_by_model.items():
         historic_array = gdal.OpenEx(raster_path, gdal.OF_RASTER).ReadAsArray()
         raster_info = geoprocessing.get_raster_info(raster_path)
+        values_by_scenario = collections.defaultdict(list)
         for start_year, end_year, scenario_id in time_range_list[1:]:
             for year in range(start_year, end_year+1):
                 future_array = gdal.OpenEx(
@@ -407,7 +420,9 @@ def calc_historical_precip(
                     gdal.OF_RASTER).ReadAsArray()
                 percent_change = (1-future_array/historic_array)*100
                 percent_change[mask_array == -1] = -1
-                values_by_scenario[scenario_id].append(percent_change[mask_array != -1].mean())
+                # at a particular scenario and year, break out by watershed
+                values_by_scenario_then_watershed[scenario_id]['all'].append(
+                    percent_change[mask_array != -1].mean())
                 geoprocessing.numpy_array_to_raster(
                     percent_change, -1, raster_info['pixel_size'],
                     [raster_info['geotransform'][i] for i in (0, 3)],
@@ -415,12 +430,23 @@ def calc_historical_precip(
                     os.path.join(
                         workspace_dir,
                         f'percent_change_{model_id}_{year}_{scenario_id}.tif'))
-    LOGGER.debug(values_by_scenario)
-    df = pandas.DataFrame.from_dict(values_by_scenario)
-    boxplot = df.boxplot()
-    boxplot.set_title("Percent increase of precipitation from historical mean 1985-2005 to future 2069-2078")
-    boxplot.set_ylabel(r'% change in precip')
-    plt.savefig(f'precip_change.png')
+                for watershed_id, watershed_name in watershed_id_to_name.items():
+                    values_by_scenario_then_watershed[scenario_id][watershed_name].append(
+                        percent_change[mask_array == watershed_id].mean())
+
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(14, 10))
+    for index, (scenario_id, value_dict) in enumerate(
+            sorted(values_by_scenario_then_watershed.items())):
+        subplot_ax = axes[index]
+        df = pandas.DataFrame.from_dict(value_dict)
+        df.to_csv(f'{scenario_id}_precip_change.csv')
+        boxplot = df.boxplot(
+            ax=subplot_ax)
+        boxplot.set_ylabel(r'% change in precip')
+        boxplot.set_title(scenario_id)
+
+    fig.suptitle("Percent increase of precipitation from historical mean 1985-2005 to future 2069-2078")
+    fig.savefig(f'precip_change.png')
 
     """
         For Precip
