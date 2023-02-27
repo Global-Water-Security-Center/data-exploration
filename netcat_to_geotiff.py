@@ -2,6 +2,7 @@
 import glob
 import os
 
+import argparse
 import pandas
 import numpy
 import rasterio
@@ -11,6 +12,9 @@ import xarray
 
 def main():
     """Entrypoint."""
+    parser = argparse.ArgumentParser(description=(
+        'not a command line script -- used to process local '
+        '`Kenya_drought_2012-01-01_2022-03-01_v2.nc`'))
     for nc_path in glob.glob(r"D:\repositories\data-exploration\Kenya_drought_2012-01-01_2022-03-01_v2.nc"):
 
         gdm_dataset = xarray.open_dataset(nc_path)

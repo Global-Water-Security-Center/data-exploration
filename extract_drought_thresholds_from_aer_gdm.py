@@ -37,7 +37,6 @@ def main():
     # start_date = '1979-01-01'
     # end_date = '2021-12-21'
 
-
     aoi_vector = geopandas.read_file(args.aoi_vector_path)
     aoi_vector = aoi_vector.to_crs('EPSG:4236')
 

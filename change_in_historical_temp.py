@@ -418,7 +418,7 @@ def calc_historical_precip(
                     future_precip_by_model_scenario_and_year[
                         model_id][scenario_id][year],
                     gdal.OF_RASTER).ReadAsArray()
-                percent_change = (1-future_array/historic_array)*100
+                percent_change = (future_array/historic_array-1)*100
                 percent_change[mask_array == -1] = -1
                 # at a particular scenario and year, break out by watershed
                 values_by_scenario_then_watershed[scenario_id]['all'].append(
@@ -444,6 +444,7 @@ def calc_historical_precip(
             ax=subplot_ax)
         boxplot.set_ylabel(r'% change in precip')
         boxplot.set_title(scenario_id)
+        plt.setp(boxplot, ylim=(-150, 150))
 
     fig.suptitle("Percent increase of precipitation from historical mean 1985-2005 to future 2069-2078")
     fig.savefig(f'precip_change.png')

@@ -14,15 +14,14 @@ for the normal_sum_tp_mm value over that time period and generates two things:
    period provided.
 2) a CSV of TOTAL sum per time snapshot with the same naming convention.
 """
-import hashlib
 import argparse
+import hashlib
 import os
 
 import ee
 import geemap
 import geopandas
 import requests
-import numpy
 
 ERA5_RESOLUTION_M = 27830
 ERA5_FILE_PREFIX = 'era5_monthly'
