@@ -15,6 +15,7 @@ For each time period
 Same for annual mean temperature
 Eventually we’ll do the same for number of “big” rain events (edited)
 """
+import argparse
 import glob
 import logging
 import sys
@@ -35,6 +36,9 @@ LOGGER.setLevel(logging.DEBUG)
 
 def main():
     """Entrypoint."""
+    _ = argparse.ArgumentParser(description=(
+        'Not a command line script. Used to manually extract pre-fetched '
+        'CMIP5 processed CSVs and make box plots of those data.'))
     for table_path in glob.glob("CIMP5_hyd_bas_L3_HYBAS_ID_*.csv"):
         watershed_id = table_path.split('CIMP5_hyd_bas_L3_HYBAS_ID_')[1][:-4]
         LOGGER.debug(watershed_id)
