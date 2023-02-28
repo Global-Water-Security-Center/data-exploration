@@ -25,6 +25,7 @@ def main():
     parser.add_argument(
         '--authenticate', action='store_true',
         help='Pass this flag if you need to reauthenticate with GEE')
+    args = parser.parse_args()
     # gdm_dataset = xarray.open_dataset('nclimdiv.nc')
     # print(gdm_dataset)
     # return

@@ -34,9 +34,10 @@ LOGGER.setLevel(logging.DEBUG)
 
 def main():
     """Entrypoint."""
-    _ = argparse.ArgumentParser(description=(
+    parser = argparse.ArgumentParser(description=(
         'Not a command line script. Exploration of 95th percentile of '
         'historical rain events to predict future rain events.'))
+    _ = parser.parse_args()
     for table_path in glob.glob("CIMP5_hyd_bas_L3_HYBAS_ID_*.csv"):
         watershed_id = table_path.split('CIMP5_hyd_bas_L3_HYBAS_ID_')[1][:-4]
         LOGGER.debug(watershed_id)

@@ -20,10 +20,10 @@ END_DATE = '2022-03-01'
 
 def main():
     """Entry point."""
-    _ = argparse.ArgumentParser(description=(
+    parser = argparse.ArgumentParser(description=(
         'Not a command line script. Used to explore how to extract rain '
         'events by watershed in a time range.'))
-
+    _ = parser.parse_args()
     # countries.gpkg can be downloaded from https://github.com/tsamsonov/r-geo-course/blob/master/data/ne/countries.gpkg
 
     # x1 = [1, 3, 5, 7, 9]

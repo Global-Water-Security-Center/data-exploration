@@ -13,9 +13,10 @@ END_DATE = '2022-03-01'
 
 
 def main():
-    _ = argparse.ArgumentParser(description=(
+    parser = argparse.ArgumentParser(description=(
         'Not a command line script. Used to explore how to extract data '
         'from netcat files extracted from AER\'s THREADD DODSC GWSC server.'))
+    _ = parser.parse_args()
     gdm_dataset = xarray.open_dataset('nclimgrid-tavg.nc')
     print(gdm_dataset)
     return

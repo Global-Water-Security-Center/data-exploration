@@ -30,9 +30,10 @@ def download_image(image, target_path):
 
 
 def main():
-    _ = argparse.ArgumentParser(description=(
+    parser = argparse.ArgumentParser(description=(
         'Not a command line script. Used to download and inspect the size of '
         'a GEE CMIP5 daily raster to estimate total offline storage.'))
+    _ = parser.parse_args()
     ee.Initialize()
     dataset = ee.ImageCollection('NASA/NEX-GDDP').filter(ee.Filter.date('2018-07-01', '2018-07-02')).first();
     download_image(dataset, 'cmip5.tif')
