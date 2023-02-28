@@ -5,13 +5,13 @@ From here: https://climate-indices.readthedocs.io/en/latest/
 import argparse
 import os
 
-import matplotlib.pyplot as plt
 import geopandas
+import matplotlib.pyplot as plt
 import numpy
+import pandas
+import plotly.express as px
 import rioxarray
 import xarray
-import plotly.express as px
-import pandas
 
 COUNTRY_NAME = 'Kenya'
 START_DATE = '2012-01-01'
@@ -20,8 +20,9 @@ END_DATE = '2022-03-01'
 
 def main():
     """Entry point."""
-    parser = argparse.ArgumentParser(
-        description='Rain events by watershed in a time range.')
+    _ = argparse.ArgumentParser(description=(
+        'Not a command line script. Used to explore how to extract rain '
+        'events by watershed in a time range.'))
 
     # countries.gpkg can be downloaded from https://github.com/tsamsonov/r-geo-course/blob/master/data/ne/countries.gpkg
 
