@@ -7,6 +7,7 @@ tier1 experiments: https://docs.google.com/spreadsheets/d/1SktYsKYhRxQFjUsGYbKxu
 tier 2 experiments: https://docs.google.com/spreadsheets/d/1RyOMbaCLjF4ffEQ3VB4E7DTOwiZwNuF1vxHm-fQ26pw/edit#gid=197844184
 tier 3 experiments: https://docs.google.com/spreadsheets/d/1N7U6_Hi4yvojOUlXS3bGgTExoX6R1d9DpqGMbg5zMms/edit#gid=2049219682
 """
+import argparse
 import intake
 import proplot as plot
 import matplotlib.pyplot as plt
@@ -15,6 +16,9 @@ import matplotlib.pyplot as plt
 def main():
     """Entry point."""
     # necessary url
+    _ = argparse.ArgumentParser(description=(
+        'Not a command line script. Incomplete tracer code to fetch '
+        'CMIP6 data.'))
     url = "https://raw.githubusercontent.com/NCAR/intake-esm-datastore/master/catalogs/pangeo-cmip6.json"
     # open the catalog
     dataframe = intake.open_esm_datastore(url)
