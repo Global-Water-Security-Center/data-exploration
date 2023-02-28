@@ -60,18 +60,20 @@ def main():
     ee_poly = geemap.shp_to_ee(local_shapefile_path)
 
     start_day = datetime.datetime.strptime(args.start_date, '%Y-%m-%d')
-    end_day = datetime.datetime.strptime(args.start_date, '%Y-%m-%d')
+    end_day = datetime.datetime.strptime(args.end_date, '%Y-%m-%d')
 
     start_day_offset = start_day + datetime.timedelta(days=1)
     end_day_offset = end_day + datetime.timedelta(days=1)
 
-    era5_daily_collection = ee.ImageCollection("ECMWF/ERA5/DAILY")
-
     daily_precip_list = []
     for working_start_day, working_end_day in [
             (start_day, end_day), (start_day_offset, end_day_offset)]:
+        era5_daily_collection = ee.ImageCollection("ECMWF/ERA5/DAILY")
+        working_start_day_str = working_start_day.strftime('%Y-%m-%d')
+        working_end_day_str = working_end_day.strftime('%Y-%m-%d')
         era5_daily_collection = era5_daily_collection.filterDate(
-            args.start_date, args.end_date)
+            working_start_day_str,
+            working_end_day_str)
         # convert to mm and divide by 2 for average
         era5_daily_precip = era5_daily_collection.select(
             ERA5_TOTAL_PRECIP_BAND_NAME).toBands().multiply(1000/2)
