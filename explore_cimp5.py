@@ -104,8 +104,10 @@ def load_cached_results(cache_file_pattern):
 
 def main():
     """Entry point."""
-    parser = argparse.ArgumentParser(
-        description='Extract CIMP5 data from GEE.')
+    parser = argparse.ArgumentParser(description=(
+        'Extract CIMP5 data from GEE given an AOI and date range. Produces '
+        'a CSV table with the pattern `CIMP5_{unique_id}.csv` with monthly  '
+        'means for precipitation and temperature broken down by model.'))
     parser.add_argument(
         'aoi_vector_path', help='Path to vector/shapefile of area of interest')
     parser.add_argument('--aggregate_by_field', help=(
