@@ -6,7 +6,6 @@ import concurrent
 import ee
 import geemap
 import geopandas
-import requests
 
 ERA5_RESOLUTION_M = 27830
 
@@ -25,8 +24,10 @@ TARGET_RESOLUTION = max([x[3] for x in DATASETS])
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Monthly rain events by watershed in an average yearly range.')
+    parser = argparse.ArgumentParser(description=(
+        'Monthly rain events by watershed in an average yearly range. Produces'
+        'a histogram CSV useful for seeing the daily distribution of '
+        'precipitation in the area of interest.'))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument('start_date', help='YYYY-MM-DD')
