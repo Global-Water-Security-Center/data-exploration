@@ -13,7 +13,7 @@ user analysis:
 Are there many more heavy rain days in future time steps than there were in
     the historical time period?
 """
-import collections
+import argparse
 import glob
 import logging
 import sys
@@ -34,7 +34,9 @@ LOGGER.setLevel(logging.DEBUG)
 
 def main():
     """Entrypoint."""
-    watershed_id_results = collections.defaultdict(dict)
+    _ = argparse.ArgumentParser(description=(
+        'Not a command line script. Exploration of 95th percentile of '
+        'historical rain events to predict future rain events.'))
     for table_path in glob.glob("CIMP5_hyd_bas_L3_HYBAS_ID_*.csv"):
         watershed_id = table_path.split('CIMP5_hyd_bas_L3_HYBAS_ID_')[1][:-4]
         LOGGER.debug(watershed_id)
