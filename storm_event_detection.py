@@ -31,7 +31,8 @@ def main():
     parser = argparse.ArgumentParser(description=(
         'Detect storm events in a 48 hour window using a threshold for '
         'precip. Result is a geotiff raster whose pixels show the count of '
-        'detected rain events within a 48 hour period.'
+        'detected rain events within a 48 hour period with the suffix '
+        '``_48hr_avg_precip_events.tif``.'
         ))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
