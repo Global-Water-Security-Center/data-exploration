@@ -27,8 +27,20 @@ ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description='Rain events by watershed in a time range.')
+    parser = argparse.ArgumentParser(description=(
+        'Rain events by watershed in a time range.'
+        'Then it will query the AER dataset'
+        'http://h2o-sandbox1.aer-aws-nonprod.net/thredds/dodsC/era5/daily-summary.nc'
+        'for the normal_sum_tp_mm value over that time period and generates '
+        'two results:\n'
+        '1) a geotiff named after the watershed file (in this case\n'
+        '   europe_basins_precip_sum_{start date}-{end date}.tif) passed in '
+        'and the\n'
+        '   date range that\'s a summation of all the precip per pixel over \n'
+        'the time'
+        '   period provided.\n'
+        '2) a CSV of TOTAL sum per time snapshot with the same naming '
+        'convention.\n)'))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument(
