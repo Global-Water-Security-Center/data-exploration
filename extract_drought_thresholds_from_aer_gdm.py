@@ -25,8 +25,10 @@ GDM_DATASET = 'https://h2o.aer.com/thredds/dodsC/gwsc/gdm'
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=f'Extract drought thresholds from {GDM_DATASET}')
+    parser = argparse.ArgumentParser(description=(
+        f'Extract drought thresholds from {GDM_DATASET} and produce a CSV '
+        'that breaks down analysis by year to highlight how many months '
+        'experience drought in 1/3, 1/2, and 2/3 of region.'))
     parser.add_argument(
         'aoi_vector_path', help='Path to vector/shapefile of area of interest')
     parser.add_argument('start_date', type=str, help='start date YYYY-MM-DD')
