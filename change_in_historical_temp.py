@@ -124,8 +124,10 @@ def download_image(image, poly_bounds, target_path):
 
 def main():
     """Entry point."""
-    parser = argparse.ArgumentParser(
-        description='Examine historical change of temp in gregion.')
+    parser = argparse.ArgumentParser(description=(
+        'Examine historical change of temp in gregion. Produces files with '
+        'the pattern ``historic_mean_temp_difference_{scenarioid}.tif`` in '
+        'the working directory.'))
     parser.add_argument(
         'aoi_vector_path', help='Path to vector/shapefile of area of interest')
     parser.add_argument(

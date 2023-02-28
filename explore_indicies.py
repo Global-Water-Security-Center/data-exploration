@@ -2,6 +2,7 @@
 
 From here: https://climate-indices.readthedocs.io/en/latest/
 """
+import argparse
 import os
 
 import matplotlib.pyplot as plt
@@ -19,6 +20,9 @@ END_DATE = '2022-03-01'
 
 def main():
     """Entry point."""
+    parser = argparse.ArgumentParser(
+        description='Rain events by watershed in a time range.')
+
     # countries.gpkg can be downloaded from https://github.com/tsamsonov/r-geo-course/blob/master/data/ne/countries.gpkg
 
     # x1 = [1, 3, 5, 7, 9]
