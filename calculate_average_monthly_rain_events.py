@@ -5,7 +5,6 @@ import concurrent
 import shutil
 import tempfile
 
-import numpy
 import ee
 import geemap
 import geopandas
