@@ -1,12 +1,10 @@
 """Demo of how to slice the GDM dataset by date range and save to geotiff"""
 import collections
+import argparse
 
 import geopandas
 import numpy
 import rioxarray
-import rasterio
-from rasterio.transform import Affine
-import pandas
 
 COUNTRY_NAME = 'Kenya'
 START_DATE = '2012-01-01'
@@ -14,8 +12,9 @@ END_DATE = '2022-03-01'
 
 
 def main():
-     parser = argparse.ArgumentParser(
-        description='Extract CIMP5 data from GEE.')
+    parser = argparse.ArgumentParser(description=(
+        'In development -- modification of extract hard coded '
+        'Kenya drought data from CMIP5.'))
     parser.add_argument(
         'aoi_vector_path', help='Path to vector/shapefile of area of interest')
     parser.add_argument('--aggregate_by_field', help=(
