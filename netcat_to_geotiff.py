@@ -12,7 +12,7 @@ import xarray
 
 def main():
     """Entrypoint."""
-    parser = argparse.ArgumentParser(description=(
+    _ = argparse.ArgumentParser(description=(
         'not a command line script -- used to process local '
         '`Kenya_drought_2012-01-01_2022-03-01_v2.nc`'))
     for nc_path in glob.glob(r"D:\repositories\data-exploration\Kenya_drought_2012-01-01_2022-03-01_v2.nc"):
