@@ -1,5 +1,6 @@
 """Demo of how to slice the GDM dataset by date range and save to geotiff"""
 from rasterio.transform import Affine
+import argparse
 import geopandas
 import numpy
 import pandas
@@ -12,6 +13,9 @@ END_DATE = '2022-03-01'
 
 
 def main():
+    _ = argparse.ArgumentParser(description=(
+        'Not a command line script. Used to explore how to extract data '
+        'from netcat files extracted from AER\'s THREADD DODSC GWSC server.'))
     gdm_dataset = xarray.open_dataset('nclimgrid-tavg.nc')
     print(gdm_dataset)
     return
