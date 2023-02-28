@@ -182,10 +182,8 @@ storm_event_detection.py
 ------------------------
 usage: storm_event_detection.py [-h] [--authenticate] [--rain_event_threshold RAIN_EVENT_THRESHOLD] path_to_watersheds start_date end_date
 
-Rain events by watershed in a time range.Then it will query the AER datasethttp://h2o-sandbox1.aer-aws-nonprod.net/thredds/dodsC/era5/daily-
-summary.ncfor the normal_sum_tp_mm value over that time period and generates two results: 1) a geotiff named after the watershed file (in this case
-europe_basins_precip_sum_{start date}-{end date}.tif) passed in and the date range that's a summation of all the precip per pixel over the time period
-provided. 2) a CSV of TOTAL sum per time snapshot with the same naming convention. )
+Detect storm events in a 48 hour window using a threshold for precip. Result is a geotiff raster whose pixels show the count of detected rain events
+within a 48 hour period with the suffix ``_48hr_avg_precip_events.tif``.
 
 positional arguments:
   path_to_watersheds    Path to vector/shapefile of watersheds
