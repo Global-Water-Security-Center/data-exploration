@@ -1,20 +1,8 @@
-"""Sum precipitation in a watershed(s) over a given time period.
-
-Usage:
-call like this:
-
-python sum_precip_by_watershed.py europe_basins 2021-03-01 2022-03-01
-
-Then it will query the AER dataset
-http://h2o-sandbox1.aer-aws-nonprod.net/thredds/dodsC/era5/daily-summary.nc
-for the normal_sum_tp_mm value over that time period and generates two things:
-1) a geotiff named after the watershed file (in this case
-   europe_basins_precip_sum_2021-03-01_2022-03-01.tif) passed in and the
-   date range that's a summation of all the precip per pixel over the time
-   period provided.
-2) a CSV of TOTAL sum per time snapshot with the same naming convention.
-"""
+"""Annual mean precipitation and temp in a watershed(s) over a given time
+period."""
 import argparse
+import calendar
+import datetime
 import hashlib
 import os
 
@@ -36,9 +24,26 @@ ANNUAL_CSV_BANDS_SCALAR_CONVERSION = [
     lambda precip_m: precip_m*1000]
 
 
+def build_yearly_ranges(start_date, end_date):
+    start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+    end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d')
+
+    current_day = start_date
+    date_range_list = []
+    while current_day < end_date:
+        last_day = datetime.datetime(
+            year=current_day.year, month=12, day=31)
+        last_day = min(last_day, end_date)
+        print(f'{current_day} -- {last_day}')
+        date_range_list.append((current_day, last_day))
+        current_day = last_day+datetime.timedelta(days=1)
+    return date_range_list
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        description='Sum precip by watershed in a time range.')
+    parser = argparse.ArgumentParser(description=(
+        'Sum annual precip and average annual temp by watershed in a time '
+        'range.'))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument(
@@ -49,6 +54,10 @@ def main():
         '--authenticate', action='store_true',
         help='Pass this flag if you need to reauthenticate with GEE')
     args = parser.parse_args()
+
+    yearly_date_range_list = build_yearly_ranges(
+        args.start_date, args.end_date)
+    return
 
     if args.authenticate:
         ee.Authenticate()
@@ -66,11 +75,15 @@ def main():
     ee_poly = geemap.geojson_to_ee(local_shapefile_path)
     os.remove(local_shapefile_path)
 
-    era5_monthly_collection = ee.ImageCollection("ECMWF/ERA5/MONTHLY")
-    era5_monthly_collection = era5_monthly_collection.filterDate(
-                    args.start_date, args.end_date)
-    era5_monthly_collection = era5_monthly_collection.select(
-        ERA5_BANDS_TO_REPORT)
+    era5_hourly_collection = ee.ImageCollection("ECMWF/ERA5/HOURLY")
+    era5_hourly_precip_collection = era5_hourly_collection.select(
+        ERA5_TOTAL_PRECIP_BAND_NAME)
+
+    monthly_precip = ee.List([
+        era5_hourly_precip_collection.filterDate(
+            start_date, end_date).sum()
+        for start_date, end_date in yearly_date_range_list])
+
     poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
 
     def clip_and_sum(image, list_so_far):
@@ -85,8 +98,7 @@ def main():
             [reduced_dict.get(key) for key in ERA5_BANDS_TO_REPORT])
 
         return list_so_far
-    mean_per_band = era5_monthly_collection.iterate(
-        clip_and_sum, ee.List([]))
+    mean_per_band = monthly_precip.iterate(clip_and_sum, ee.List([]))
     print()
 
     vector_basename = os.path.splitext(
@@ -103,7 +115,7 @@ def main():
                           zip(payload[2:], CSV_BANDS_SCALAR_CONVERSION)]) +
                 '\n')
 
-    era5_monthly_precp_collection = era5_monthly_collection.select(
+    era5_monthly_precp_collection = era5_hourly_collection.select(
         ERA5_TOTAL_PRECIP_BAND_NAME).toBands()
     era5_precip_sum = era5_monthly_precp_collection.reduce('sum').clip(
         ee_poly).mask(poly_mask).multiply(1000)
@@ -118,7 +130,7 @@ def main():
     with open(precip_path, 'wb') as fd:
         fd.write(response.content)
 
-    era5_monthly_temp_collection = era5_monthly_collection.select(
+    era5_monthly_temp_collection = era5_hourly_collection.select(
         ERA5_MEAN_AIR_TEMP_BAND_NAME).toBands()
     era5_temp_mean = era5_monthly_temp_collection.reduce('mean').clip(
         ee_poly).mask(poly_mask).subtract(273.15)
