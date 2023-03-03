@@ -14,7 +14,7 @@ import geopandas
 import numpy
 import requests
 
-ERA5_RESOLUTION_M = 27830
+ERA5_RESOLUTION_M = 11132
 ERA5_FILE_PREFIX = 'era5_monthly'
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
 ERA5_AIR_TEMP_BAND_NAME = 'temperature_2m'
