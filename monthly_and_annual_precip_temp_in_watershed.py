@@ -3,6 +3,7 @@ period."""
 import argparse
 import calendar
 import collections
+import concurrent
 import datetime
 import hashlib
 import os
@@ -45,6 +46,42 @@ def build_monthly_ranges(start_date, end_date):
     return date_range_list
 
 
+def get_monthly_precip_temp_mean(path_to_ee_poly, start_date, end_date):
+    ee_poly = geemap.geojson_to_ee(path_to_ee_poly)
+    poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
+
+    era5_hourly_collection = ee.ImageCollection("ECMWF/ERA5/HOURLY")
+    era5_hourly_precip_collection = era5_hourly_collection.select(
+        ERA5_TOTAL_PRECIP_BAND_NAME)
+    monthly_precip_sum = era5_hourly_precip_collection.filterDate(
+        start_date, end_date).sum()
+
+    era5_hourly_temp_collection = era5_hourly_collection.select(
+        ERA5_AIR_TEMP_BAND_NAME)
+    monthly_mean_temp = era5_hourly_temp_collection.filterDate(
+        start_date, end_date).mean()
+
+    def clip_and_mean(image):
+        reduced_dict = ee.Image(image).clip(ee_poly).mask(
+            poly_mask).reduceRegion(**{
+                'geometry': ee_poly,
+                'reducer': ee.Reducer.mean()
+            })
+        return reduced_dict
+
+    # reduce the images down to a single value per ee_poly via mean
+    clipped_reduced_monthly_precip_mean = clip_and_mean(
+        monthly_precip_sum)
+    clipped_reduced_monthly_temp_mean = clip_and_mean(
+        monthly_mean_temp)
+
+    return (
+        clipped_reduced_monthly_precip_mean.getInfo()[
+            ERA5_TOTAL_PRECIP_BAND_NAME],
+        clipped_reduced_monthly_temp_mean.getInfo()[
+            ERA5_AIR_TEMP_BAND_NAME])
+
+
 def main():
     parser = argparse.ArgumentParser(description=(
         'Given a region and a time period, create two tables (1)  monthly '
@@ -71,7 +108,6 @@ def main():
         return
     ee.Initialize()
 
-    # convert to GEE polygon
     gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
     unique_id = hashlib.md5((
         args.path_to_watersheds+args.start_date+args.end_date).encode(
@@ -79,56 +115,29 @@ def main():
     local_shapefile_path = f'_local_ok_to_delete_{unique_id}.json'
     gp_poly.to_file(local_shapefile_path)
     gp_poly = None
-    ee_poly = geemap.geojson_to_ee(local_shapefile_path)
-    os.remove(local_shapefile_path)
 
-    era5_hourly_collection = ee.ImageCollection("ECMWF/ERA5/HOURLY")
-    era5_hourly_precip_collection = era5_hourly_collection.select(
-        ERA5_TOTAL_PRECIP_BAND_NAME)
-    monthly_precip_sum_list = ee.List([
-        era5_hourly_precip_collection.filterDate(
-            start_date, end_date).sum()
-        for start_date, end_date in monthly_date_range_list])
-
-    era5_hourly_temp_collection = era5_hourly_collection.select(
-        ERA5_AIR_TEMP_BAND_NAME)
-    monthly_mean_temp_list = ee.List([
-        era5_hourly_temp_collection.filterDate(
-            start_date, end_date).mean()
-        for start_date, end_date in monthly_date_range_list])
-
-    poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
-
-    def clip_and_mean(band_id):
-        def _clip_and_mean(image, list_so_far):
-            list_so_far = ee.List(list_so_far)
-            reduced_dict = ee.Image(image).clip(ee_poly).mask(
-                poly_mask).reduceRegion(**{
-                    'geometry': ee_poly,
-                    'reducer': ee.Reducer.mean()
-                })
-            list_so_far = list_so_far.add(reduced_dict.get(band_id))
-            return list_so_far
-        return _clip_and_mean
-
-    # reduce the images down to a single value per ee_poly via mean
-    clipped_reduced_monthly_precip_mean_list = monthly_precip_sum_list.iterate(
-        clip_and_mean(ERA5_TOTAL_PRECIP_BAND_NAME), ee.List([]))
-    clipped_reduced_monthly_temp_mean_list = monthly_mean_temp_list.iterate(
-        clip_and_mean(ERA5_AIR_TEMP_BAND_NAME), ee.List([]))
+    monthly_mean_image_list = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        for start_date, end_date in monthly_date_range_list:
+            monthly_mean_image_list.append(
+                executor.submit(
+                    get_monthly_precip_temp_mean, local_shapefile_path,
+                    start_date, end_date))
+        monthly_mean_image_list = [x.result() for x in monthly_mean_image_list]
 
     vector_basename = os.path.splitext(
         os.path.basename(args.path_to_watersheds))[0]
-    target_base = f"{vector_basename}_monthly_precip_temp_mean_{args.start_date}_{args.end_date}"
+    target_base = (
+        f"{vector_basename}_monthly_precip_temp_mean_"
+        f"{args.start_date}_{args.end_date}")
     target_table_path = f"{target_base}.csv"
     print(f'generating summary table to {target_table_path}')
     precip_by_year = collections.defaultdict(list)
     with open(target_table_path, 'w') as table_file:
         table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY) + '\n')
-        for precip_mean, temp_mean, date in zip(
-                clipped_reduced_monthly_precip_mean_list.getInfo(),
-                clipped_reduced_monthly_temp_mean_list.getInfo(),
-                monthly_date_range_list):
+        for (precip_mean, temp_mean), date in zip(
+                monthly_mean_image_list, monthly_date_range_list):
+            print(temp_mean)
             year = date[0][:4]
             converted_precip, converted_temp = [
                 _conv(x) for x, _conv in zip(
@@ -138,6 +147,12 @@ def main():
             table_file.write(
                 f'{date[0][:7]},{converted_precip},{converted_temp}\n')
 
+    ee_poly = geemap.geojson_to_ee(local_shapefile_path)
+    poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
+    os.remove(local_shapefile_path)
+
+    monthly_precip_sum_list, monthly_mean_temp_list = zip(
+        *monthly_mean_image_list)
     era5_monthly_precp_collection = ee.ImageCollection(
         monthly_precip_sum_list).toBands()
     era5_precip_sum = era5_monthly_precp_collection.reduce('sum').clip(
@@ -148,7 +163,9 @@ def main():
         'format': 'GEO_TIFF'
     })
     response = requests.get(url)
-    precip_path = f"{vector_basename}_precip_mm_sum_{args.start_date}_{args.end_date}.tif"
+    precip_path = (
+        f"{vector_basename}_precip_mm_sum_"
+        f"{args.start_date}_{args.end_date}.tif")
     print(f'calculate total precip sum to {precip_path}')
     with open(precip_path, 'wb') as fd:
         fd.write(response.content)
@@ -163,17 +180,21 @@ def main():
         'format': 'GEO_TIFF'
     })
     response = requests.get(url)
-    temp_path = f"{vector_basename}_temp_C_monthly_mean_{args.start_date}_{args.end_date}.tif"
+    temp_path = (
+        f"{vector_basename}_temp_C_monthly_mean_"
+        f"{args.start_date}_{args.end_date}.tif")
     print(f'calculate mean temp to {temp_path}')
     with open(temp_path, 'wb') as fd:
         fd.write(response.content)
 
     # get annual mean of precip
-    target_base = f"{vector_basename}_annual_precip_mean_{args.start_date}_{args.end_date}"
+    target_base = (
+        f"{vector_basename}_annual_precip_mean_"
+        f"{args.start_date}_{args.end_date}")
     target_table_path = f"{target_base}.csv"
     print(f'generating summary table to {target_table_path}')
     with open(target_table_path, 'w') as table_file:
-        table_file.write(f'date,{CSV_BANDS_TO_DISPLAY[0]}\n')
+        table_file.write(f'date,yearly sum of {CSV_BANDS_TO_DISPLAY[0]}\n')
         total_sum = 0
         total_months = 0
         for year, precip_list in sorted(precip_by_year.items()):
@@ -181,10 +202,12 @@ def main():
             yearly_months = len(precip_list)
             total_sum += yearly_sum
             total_months += yearly_months
+
             table_file.write(
-                f'{year},{yearly_sum/yearly_months}\n')
-            table_file.write(
-                f'total annual mean (adjusted to 12 months),{total_sum/total_months*12}\n')
+                f'{year},{yearly_sum}\n')
+        table_file.write(
+            f'total annual mean (adjusted to 12 months),'
+            f'{total_sum/total_months*12}\n')
 
 
 if __name__ == '__main__':
