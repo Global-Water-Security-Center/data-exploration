@@ -47,9 +47,10 @@ def build_monthly_ranges(start_date, end_date):
 
 def main():
     parser = argparse.ArgumentParser(description=(
-        'Given a region and a time period, create two tables showing monthly '
-        'precip and mean temporature and another table showing annual '
-        'rainfall.'))
+        'Given a region and a time period, create two tables (1)  monthly '
+        'precip and mean temporature and (2)  showing annual '
+        'rainfall, as well as two rasters (3) total precip sum in AOI and (4) '
+        'overall monthly temperture mean in the AOI.'))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument(
