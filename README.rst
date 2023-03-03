@@ -161,6 +161,22 @@ options:
                         If provided, this aggregates results by the unique values found in the field in `aoi_vector_path`
   --authenticate        Pass this flag if you need to reauthenticate with GEE
 
+monthly_and_annual_precip_temp_in_watershed.py
+----------------------------------------------
+usage: monthly_and_annual_precip_temp_in_watershed.py [-h] [--authenticate] path_to_watersheds start_date end_date
+
+Given a region and a time period, create two tables (1) monthly precip and mean temporature and (2) showing annual rainfall, as well as two rasters (3)
+total precip sum in AOI and (4) overall monthly temperture mean in the AOI.
+
+positional arguments:
+  path_to_watersheds  Path to vector/shapefile of watersheds
+  start_date          start date for summation (YYYY-MM-DD) format
+  end_date            start date for summation (YYYY-MM-DD) format
+
+options:
+  -h, --help          show this help message and exit
+  --authenticate      Pass this flag if you need to reauthenticate with GEE
+
 ncinfo.py
 ---------
 usage: ncinfo.py [-h] raster_path
@@ -195,19 +211,4 @@ options:
   --authenticate        Pass this flag if you need to reauthenticate with GEE
   --rain_event_threshold RAIN_EVENT_THRESHOLD
                         amount of rain (mm) in a day to count as a rain event
-
-sum_precip_by_watershed.py
---------------------------
-usage: sum_precip_by_watershed.py [-h] [--authenticate] path_to_watersheds start_date end_date
-
-Sum precip by watershed in a time range.
-
-positional arguments:
-  path_to_watersheds  Path to vector/shapefile of watersheds
-  start_date          start date for summation (YYYY-MM-DD) format
-  end_date            start date for summation (YYYY-MM-DD) format
-
-options:
-  -h, --help          show this help message and exit
-  --authenticate      Pass this flag if you need to reauthenticate with GEE
 
