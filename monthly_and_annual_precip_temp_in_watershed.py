@@ -66,6 +66,7 @@ def get_monthly_precip_temp_mean(path_to_ee_poly, start_date, end_date):
             poly_mask)
         reduced_dict = clipped_image.reduceRegion(**{
                 'geometry': ee_poly,
+                'scale': ERA5_RESOLUTION_M,
                 'reducer': ee.Reducer.mean()
             })
         return clipped_image, reduced_dict
