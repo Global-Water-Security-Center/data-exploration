@@ -62,20 +62,23 @@ def get_monthly_precip_temp_mean(path_to_ee_poly, start_date, end_date):
         start_date, end_date).mean()
 
     def clip_and_mean(image):
-        reduced_dict = ee.Image(image).clip(ee_poly).mask(
-            poly_mask).reduceRegion(**{
+        clipped_image = ee.Image(image).clip(ee_poly).mask(
+            poly_mask)
+        reduced_dict = clipped_image.reduceRegion(**{
                 'geometry': ee_poly,
                 'reducer': ee.Reducer.mean()
             })
-        return reduced_dict
+        return clipped_image, reduced_dict
 
     # reduce the images down to a single value per ee_poly via mean
-    clipped_reduced_monthly_precip_mean = clip_and_mean(
-        monthly_precip_sum)
-    clipped_reduced_monthly_temp_mean = clip_and_mean(
-        monthly_mean_temp)
+    (clipped_reduced_monthly_precip_image,
+     clipped_reduced_monthly_precip_mean) = clip_and_mean(monthly_precip_sum)
+    (clipped_reduced_monthly_temp_image,
+     clipped_reduced_monthly_temp_mean) = clip_and_mean(monthly_mean_temp)
 
     return (
+        clipped_reduced_monthly_precip_image,
+        clipped_reduced_monthly_temp_image,
         clipped_reduced_monthly_precip_mean.getInfo()[
             ERA5_TOTAL_PRECIP_BAND_NAME],
         clipped_reduced_monthly_temp_mean.getInfo()[
@@ -133,10 +136,14 @@ def main():
     target_table_path = f"{target_base}.csv"
     print(f'generating summary table to {target_table_path}')
     precip_by_year = collections.defaultdict(list)
+    precip_image_list = []
+    temp_image_list = []
     with open(target_table_path, 'w') as table_file:
         table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY) + '\n')
-        for (precip_mean, temp_mean), date in zip(
+        for (precip_image, temp_image, precip_mean, temp_mean), date in zip(
                 monthly_mean_image_list, monthly_date_range_list):
+            precip_image_list.append(precip_image)
+            temp_image_list.append(temp_image)
             print(temp_mean)
             year = date[0][:4]
             converted_precip, converted_temp = [
@@ -151,10 +158,9 @@ def main():
     poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
     os.remove(local_shapefile_path)
 
-    monthly_precip_sum_list, monthly_mean_temp_list = zip(
-        *monthly_mean_image_list)
     era5_monthly_precp_collection = ee.ImageCollection(
-        monthly_precip_sum_list).toBands()
+        precip_image_list).toBands()
+    print(era5_monthly_precp_collection.getInfo())
     era5_precip_sum = era5_monthly_precp_collection.reduce('sum').clip(
         ee_poly).mask(poly_mask).multiply(1000)
     url = era5_precip_sum.getDownloadUrl({
@@ -171,7 +177,7 @@ def main():
         fd.write(response.content)
 
     era5_monthly_temp_collection = ee.ImageCollection(
-        monthly_mean_temp_list).toBands()
+        temp_image_list).toBands()
     era5_temp_mean = era5_monthly_temp_collection.reduce('mean').clip(
         ee_poly).mask(poly_mask).subtract(273.15)
     url = era5_temp_mean.getDownloadUrl({
