@@ -34,7 +34,6 @@ ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
 
 def _download_url(url, target_path):
     response = requests.get(url)
-    print(f'downloading {target_path}')
     with open(target_path, 'wb') as fd:
         fd.write(response.content)
     return target_path
@@ -43,9 +42,12 @@ def _download_url(url, target_path):
 def main():
     parser = argparse.ArgumentParser(description=(
         'Detect storm events in a 48 hour window using a threshold for '
-        'precip. Result is a geotiff raster whose pixels show the count of '
-        'detected rain events within a 48 hour period with the suffix '
-        '``_48hr_avg_precip_events.tif``.'
+        'precip. Result is located in a directory called '
+        '`workspace_{vector name}` and contains rasters for each month over '
+        'the time period showing nubmer of precip events per pixel, a raster '
+        'prefixed with "overall_" showing the overall storm event per pixel, '
+        'and a CSV table prefixed with the vector basename and time range '
+        'showing number of events in the region per month.'
         ))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
@@ -69,7 +71,9 @@ def main():
     # convert to GEE polygon
     vector_basename = os.path.basename(
         os.path.splitext(args.path_to_watersheds)[0])
-    workspace_dir = f'workspace_{vector_basename}'
+    project_basename = (
+        f'''{vector_basename}_{args.start_date}_{args.end_date}''')
+    workspace_dir = f'workspace_{project_basename}'
     os.makedirs(workspace_dir, exist_ok=True)
     gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
     local_shapefile_path = os.path.join(
@@ -81,7 +85,6 @@ def main():
 
     monthly_date_range_list = build_monthly_ranges(
         args.start_date, args.end_date)
-    print(monthly_date_range_list)
     with concurrent.futures.ThreadPoolExecutor() as executor:
         raster_download_list = []
         for start_date, end_date in monthly_date_range_list:
@@ -97,14 +100,12 @@ def main():
                 era5_daily_collection = ee.ImageCollection("ECMWF/ERA5/DAILY")
                 working_start_day_str = working_start_day.strftime('%Y-%m-%d')
                 working_end_day_str = working_end_day.strftime('%Y-%m-%d')
-                print(f'{working_start_day_str} - {working_end_day_str}')
                 if working_start_day_str != working_end_day_str:
                     era5_daily_collection = era5_daily_collection.filterDate(
                         working_start_day_str,
                         working_end_day_str)
                 else:
                     # just one day
-                    print('ONE DAY')
                     era5_daily_collection = era5_daily_collection.filterDate(
                         working_start_day_str)
                 # convert to mm and divide by 2 for average
@@ -157,10 +158,9 @@ def main():
                     running_sum += array
                     valid_mask |= array != nodata
 
-                print(f'{numpy.sum(array)} {numpy.sum(running_sum)}')
         # write the final overall raster
         precip_over_all_time_path = os.path.join(
-            workspace_dir, f'''overall_{vector_basename}_48hr_avg_precip_events_{
+            workspace_dir, f'''overall_{project_basename}_48hr_avg_precip_events_{
             args.start_date}_{args.end_date}.tif''')
         shutil.copyfile(raster_path, precip_over_all_time_path)
         r = gdal.OpenEx(
