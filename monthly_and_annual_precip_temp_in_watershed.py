@@ -67,7 +67,7 @@ def get_monthly_precip_temp_mean(path_to_ee_poly, start_date, end_date):
 def main():
     parser = argparse.ArgumentParser(description=(
         'Given a region and a time period, create two tables (1)  monthly '
-        'precip and mean temporature and (2)  showing annual '
+        'precip and mean temperature and (2) showing annual '
         'rainfall, as well as two rasters (3) total precip sum in AOI and (4) '
         'overall monthly temperture mean in the AOI.'))
     parser.add_argument(
@@ -83,7 +83,6 @@ def main():
 
     monthly_date_range_list = build_monthly_ranges(
         args.start_date, args.end_date)
-    print(monthly_date_range_list)
 
     if args.authenticate:
         ee.Authenticate()
@@ -113,23 +112,29 @@ def main():
         f"{vector_basename}_monthly_precip_temp_mean_"
         f"{args.start_date}_{args.end_date}")
     target_table_path = f"{target_base}.csv"
-    print(f'generating summary table to {target_table_path}')
+    print(f'starting...')
     precip_by_year = collections.defaultdict(list)
+    precip_by_month = collections.defaultdict(list)
+    temp_by_month = collections.defaultdict(list)
     precip_image_list = []
     temp_image_list = []
+
     with open(target_table_path, 'w') as table_file:
         table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY) + '\n')
         for (precip_image, temp_image, precip_mean, temp_mean), date in zip(
                 monthly_mean_image_list, monthly_date_range_list):
             precip_image_list.append(precip_image)
             temp_image_list.append(temp_image)
-            print(temp_mean)
+            print(f'...processing {date}')
             year = date[0][:4]
+            month = date[0][5:8]
             converted_precip, converted_temp = [
                 _conv(x) for x, _conv in zip(
                     (precip_mean, temp_mean),
                     CSV_BANDS_SCALAR_CONVERSION)]
             precip_by_year[year].append(converted_precip)
+            precip_by_month[month].append(converted_precip)
+            temp_by_month[month].append(converted_temp)
             table_file.write(
                 f'{date[0][:7]},{converted_precip},{converted_temp}\n')
 
@@ -139,7 +144,6 @@ def main():
 
     era5_monthly_precp_collection = ee.ImageCollection(
         precip_image_list).toBands()
-    print(era5_monthly_precp_collection.getInfo())
     era5_precip_sum = era5_monthly_precp_collection.reduce('sum').clip(
         ee_poly).mask(poly_mask).multiply(1000)
     url = era5_precip_sum.getDownloadUrl({
@@ -151,7 +155,7 @@ def main():
     precip_path = (
         f"{vector_basename}_precip_mm_sum_"
         f"{args.start_date}_{args.end_date}.tif")
-    print(f'calculate total precip sum to {precip_path}')
+    print(f'total precip sum raster: {precip_path}')
     with open(precip_path, 'wb') as fd:
         fd.write(response.content)
 
@@ -168,7 +172,7 @@ def main():
     temp_path = (
         f"{vector_basename}_temp_C_monthly_mean_"
         f"{args.start_date}_{args.end_date}.tif")
-    print(f'calculate mean temp to {temp_path}')
+    print(f'mean temp raster: {temp_path}')
     with open(temp_path, 'wb') as fd:
         fd.write(response.content)
 
@@ -193,6 +197,25 @@ def main():
         table_file.write(
             f'total annual mean (adjusted to 12 months),'
             f'{total_sum/total_months*12}\n')
+
+    # create a table for precip and temp that is by MONTH showing a mean
+    # value for that month over every year in the time period
+    for table_type, dict_by_month in [
+            ('precip', precip_by_month), ('temp', temp_by_month)]:
+        monthly_normal_table_path = (
+            f"{vector_basename}_monthly_precip_normal_"
+            f"{args.start_date}_{args.end_date}")
+        target_table_path = f"{target_base}.csv"
+        with open(monthly_normal_table_path, 'w') as \
+                monthly_normal_table:
+            monthly_normal_table.write('month,avg precip\n')
+            for month_id, precip_list in sorted(precip_by_month.items()):
+                monthly_normal_table.write(
+                    f'{month_id},{numpy.average(precip_list)}\n')
+
+        print(
+            f'monthly {table_type} normal table at: '
+            f'{monthly_normal_table_path}')
 
 
 if __name__ == '__main__':
