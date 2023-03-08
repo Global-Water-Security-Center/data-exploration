@@ -30,7 +30,7 @@ def main():
     parser = argparse.ArgumentParser(description=(
         f'Extract drought thresholds from {GDM_DATASET} and produce a CSV '
         'that breaks down analysis by year to highlight how many months '
-        'experience drought in 1/3, 1/2, and 2/3 of region.'))
+        'experience drought in 1/3, 1/2, and 2/3 of region. Results '))
     parser.add_argument(
         'aoi_vector_path', help='Path to vector/shapefile of area of interest')
     parser.add_argument('start_date', type=str, help='start date YYYY-MM-DD')
@@ -118,8 +118,6 @@ def main():
                 table_file.write('\n')
             LOGGER.debug('done with scheduling')
 
-    LOGGER.debug(running_drought_count_array)
-
     file_basename = (
         f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}'
         f'_{args.start_date}_{args.end_date}')
@@ -136,7 +134,7 @@ def main():
     res = (maxx-minx) / running_drought_count_array.shape[1]
     transform = Affine.translation(
         minx - res / 2,
-        miny - res / 2) * Affine.scale(res, res)
+        maxy + res / 2) * Affine.scale(res, -res)
     raster_path = (
         f'drought_events_by_pixel_{args.start_date}_{args.end_date}.tif')
     nodata = -1
@@ -157,6 +155,11 @@ def main():
     new_dataset.write(running_drought_count_array, 1)
     new_dataset.close()
     new_dataset = None
+
+    LOGGER.info(
+        f'All done\n'
+        f'\tRaster with total drought events per pixel at: {raster_path}\n'
+        f'\tTable with drought info by month: {table_path}\n')
 
 
 if __name__ == '__main__':
