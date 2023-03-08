@@ -127,7 +127,7 @@ def main():
             temp_image_list.append(temp_image)
             print(f'...processing {date}')
             year = date[0][:4]
-            month = date[0][5:8]
+            month = date[0][5:7]
             converted_precip, converted_temp = [
                 _conv(x) for x, _conv in zip(
                     (precip_mean, temp_mean),
@@ -203,15 +203,15 @@ def main():
     for table_type, dict_by_month in [
             ('precip', precip_by_month), ('temp', temp_by_month)]:
         monthly_normal_table_path = (
-            f"{vector_basename}_monthly_precip_normal_"
-            f"{args.start_date}_{args.end_date}")
+            f"{vector_basename}_monthly_{table_type}_normal_"
+            f"{args.start_date}_{args.end_date}.csv")
         target_table_path = f"{target_base}.csv"
         with open(monthly_normal_table_path, 'w') as \
                 monthly_normal_table:
             monthly_normal_table.write('month,avg precip\n')
-            for month_id, precip_list in sorted(precip_by_month.items()):
+            for month_id, data_list in sorted(dict_by_month.items()):
                 monthly_normal_table.write(
-                    f'{month_id},{numpy.average(precip_list)}\n')
+                    f'{month_id},{numpy.average(data_list)}\n')
 
         print(
             f'monthly {table_type} normal table at: '
