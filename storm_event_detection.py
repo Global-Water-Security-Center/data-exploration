@@ -18,6 +18,7 @@ import argparse
 import datetime
 import os
 
+from utils import build_monthly_ranges
 import ee
 import geemap
 import geopandas
@@ -59,6 +60,7 @@ def main():
     gp_poly.to_file(local_shapefile_path)
     gp_poly = None
     ee_poly = geemap.shp_to_ee(local_shapefile_path)
+    os.remove(local_shapefile_path)
 
     start_day = datetime.datetime.strptime(args.start_date, '%Y-%m-%d')
     end_day = datetime.datetime.strptime(args.end_date, '%Y-%m-%d')
@@ -97,13 +99,19 @@ def main():
         'format': 'GEO_TIFF'
     })
     response = requests.get(url)
-    vector_basename = os.path.basename(os.path.splitext(args.path_to_watersheds)[0])
+    vector_basename = os.path.basename(
+        os.path.splitext(args.path_to_watersheds)[0])
     precip_path = f'''{vector_basename}_48hr_avg_precip_events_{
         args.start_date}_{args.end_date}.tif'''
     print(f'calculate total precip event {precip_path}')
     with open(precip_path, 'wb') as fd:
         fd.write(response.content)
 
+    #TODO: Add table with with the month/event breakdown to the 48 hour window
+    # on the storm event script `storm_event_detection.py`
+    # https://gwsc-hq.slack.com/archives/C048M7AG1ST/p1677770482825709?thread_ts=1676576702.615799&cid=C048M7AG1ST
+    monthly_date_range_list = build_monthly_ranges(
+        args.start_date, args.end_date)
 
 if __name__ == '__main__':
     main()

@@ -1,13 +1,12 @@
 """Annual mean precipitation and temp in a watershed(s) over a given time
 period."""
 import argparse
-import calendar
 import collections
 import concurrent
-import datetime
 import hashlib
 import os
 
+from utils import build_monthly_ranges
 import ee
 import geemap
 import geopandas
@@ -23,27 +22,6 @@ CSV_BANDS_SCALAR_CONVERSION = [
     lambda precip_m: precip_m*1000, lambda K_val: K_val-273.15]
 ANNUAL_CSV_BANDS_SCALAR_CONVERSION = [
     lambda precip_m: precip_m*1000]
-
-
-def build_monthly_ranges(start_date, end_date):
-    start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-    end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d')
-
-    current_day = start_date
-    date_range_list = []
-    while current_day < end_date:
-        current_year = current_day.year
-        current_month = current_day.month
-        last_day = datetime.datetime(
-            year=current_year, month=current_month,
-            day=calendar.monthrange(current_year, current_month)[1])
-        last_day = min(last_day, end_date)
-        date_range_list.append(
-            (current_day.strftime('%Y-%m-%d'),
-             last_day.strftime('%Y-%m-%d')))
-        # this kicks it to next month
-        current_day = last_day+datetime.timedelta(days=1)
-    return date_range_list
 
 
 def get_monthly_precip_temp_mean(path_to_ee_poly, start_date, end_date):
