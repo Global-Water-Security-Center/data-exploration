@@ -66,9 +66,11 @@ def get_monthly_precip_temp_mean(path_to_ee_poly, start_date, end_date):
 
 def main():
     parser = argparse.ArgumentParser(description=(
-        'Given a region and a time period, create two tables (1)  monthly '
-        'precip and mean temperature and (2) showing annual '
-        'rainfall, as well as two rasters (3) total precip sum in AOI and (4) '
+        'Given a region and a time period create four tables (1) monthly '
+        'precip and mean temperature and (2) annual '
+        'rainfall, (3) monthly normal temp, and (4) monthly normal precip '
+        'over the query time period as well as two rasters: (5) total precip '
+        'sum over AOI and (6) '
         'overall monthly temperture mean in the AOI.'))
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')

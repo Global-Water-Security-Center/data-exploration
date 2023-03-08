@@ -162,8 +162,8 @@ monthly_and_annual_precip_temp_in_watershed.py
 ----------------------------------------------
 usage: monthly_and_annual_precip_temp_in_watershed.py [-h] [--authenticate] path_to_watersheds start_date end_date
 
-Given a region and a time period, create two tables (1) monthly precip and mean temporature and (2) showing annual rainfall, as well as two rasters (3)
-total precip sum in AOI and (4) overall monthly temperture mean in the AOI.
+Given a region and a time period create four tables (1) monthly precip and mean temperature and (2) annual rainfall, (3) monthly normal temp, and (4)
+monthly normal precip over the query time period as well as two rasters: (5) total precip sum over AOI and (6) overall monthly temperture mean in the AOI.
 
 positional arguments:
   path_to_watersheds  Path to vector/shapefile of watersheds
