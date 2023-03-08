@@ -195,8 +195,9 @@ storm_event_detection.py
 ------------------------
 usage: storm_event_detection.py [-h] [--authenticate] [--rain_event_threshold RAIN_EVENT_THRESHOLD] path_to_watersheds start_date end_date
 
-Detect storm events in a 48 hour window using a threshold for precip. Result is a geotiff raster whose pixels show the count of detected rain events within
-a 48 hour period with the suffix ``_48hr_avg_precip_events.tif``.
+Detect storm events in a 48 hour window using a threshold for precip. Result is located in a directory called `workspace_{vector name}` and contains rasters
+for each month over the time period showing nubmer of precip events per pixel, a raster prefixed with "overall_" showing the overall storm event per pixel,
+and a CSV table prefixed with the vector basename and time range showing number of events in the region per month.
 
 positional arguments:
   path_to_watersheds    Path to vector/shapefile of watersheds
@@ -208,4 +209,7 @@ options:
   --authenticate        Pass this flag if you need to reauthenticate with GEE
   --rain_event_threshold RAIN_EVENT_THRESHOLD
                         amount of rain (mm) in a day to count as a rain event
+
+utils.py
+--------
 
