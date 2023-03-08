@@ -19,7 +19,7 @@ def build_monthly_ranges(start_date, end_date):
 
     current_day = start_date
     date_range_list = []
-    while current_day < end_date:
+    while current_day <= end_date:
         current_year = current_day.year
         current_month = current_day.month
         last_day = datetime.datetime(
