@@ -100,6 +100,7 @@ def main():
     monthly_mean_image_list = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         for start_date, end_date in monthly_date_range_list:
+            print(f'submitting {start_date} to GEE to process')
             monthly_mean_image_list.append(
                 executor.submit(
                     get_monthly_precip_temp_mean, local_shapefile_path,
@@ -208,7 +209,7 @@ def main():
         target_table_path = f"{target_base}.csv"
         with open(monthly_normal_table_path, 'w') as \
                 monthly_normal_table:
-            monthly_normal_table.write('month,avg precip\n')
+            monthly_normal_table.write(f'month,avg {table_type}\n')
             for month_id, data_list in sorted(dict_by_month.items()):
                 monthly_normal_table.write(
                     f'{month_id},{numpy.average(data_list)}\n')
