@@ -171,6 +171,7 @@ def main():
         b.WriteArray(running_sum)
         b = None
         r = None
+    print(f'all done, results in {workspace_dir}')
 
 
 if __name__ == '__main__':
