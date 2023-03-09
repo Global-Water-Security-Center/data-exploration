@@ -29,9 +29,15 @@ GDM_DATASET = 'https://h2o.aer.com/thredds/dodsC/gwsc/gdm'
 
 def main():
     parser = argparse.ArgumentParser(description=(
-        f'Extract drought thresholds from {GDM_DATASET} and produce a CSV '
+        f'Extract SPEI12 thresholds from {GDM_DATASET} and produce a CSV '
         'that breaks down analysis by year to highlight how many months '
-        'experience drought in 1/3, 1/2, and 2/3 of region. Results '))
+        'experience drought in 1/3, 1/2, and 2/3 of region. Results are in '
+        'three files: (1) spei12_drought_info_raw_{aoi}.csv contains '
+        'month by month aggregates, '
+        '(2) spei12_drought_events_by_pixel_{aoi}.tif contains pixels whose '
+        'values are the number of months drought during the query time range '
+        'and (3) spei12_drought_info_by_year_{aoi}.csv, summaries of total '
+        'number of drought events per year in the AOI.'))
     parser.add_argument(
         'aoi_vector_path', help='Path to vector/shapefile of area of interest')
     parser.add_argument('start_date', type=str, help='start date YYYY-MM-DD')
@@ -66,8 +72,8 @@ def main():
     one_mask = xarray.DataArray(numpy.ones(dims), dims=['lon', 'lat'])
     local_slice['mask'] = one_mask
 
-    table_path = f'''drought_info_raw_{
-        os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_{
+    table_path = f'''spei12_drought_info_raw_{
+        utils.file_basename(args.aoi_vector_path)}_{
         args.start_date}_{args.end_date}.csv'''
     drought_months = collections.defaultdict(lambda: collections.defaultdict(int))
     year_set = set()
@@ -97,7 +103,7 @@ def main():
                 valid_pixel_count = numpy.count_nonzero(
                     month_slice.mask.values == 1)
                 table_file.write(f',{valid_pixel_count}')
-                drought_values = month_slice.drought.values
+                drought_values = month_slice.spei12.values
                 for drought_category in [0, 1, 2, 3, 4]:
                     valid_drought_pixels = (drought_values == drought_category)
                     if drought_category >= 3:
@@ -122,7 +128,7 @@ def main():
     file_basename = (
         f'{utils.file_basename(args.aoi_vector_path)}_'
         f'{args.start_date}_{args.end_date}')
-    table_path = f'''drought_info_by_year_{file_basename}.csv'''
+    table_path = f'''spei12_drought_info_by_year_{file_basename}.csv'''
     with open(table_path, 'w') as table_file:
         table_file.write('year,n months with 1/3 drought in region,n months with 1/2 drought in region,n months with 2/3 drought in region\n')
         for year in sorted(year_set):
@@ -137,7 +143,7 @@ def main():
         minx - res / 2,
         maxy + res / 2) * Affine.scale(res, -res)
     raster_path = (
-        f'drought_events_by_pixel_{file_basename}.tif')
+        f'spei12_drought_events_by_pixel_{file_basename}.tif')
     nodata = -1
     # for some reason the mask is transposed in this netcat file
     running_drought_count_array[~valid_mask.transpose()] = nodata
