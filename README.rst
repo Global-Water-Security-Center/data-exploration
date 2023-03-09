@@ -132,8 +132,10 @@ extract_drought_thresholds_from_aer_gdm.py
 ------------------------------------------
 usage: extract_drought_thresholds_from_aer_gdm.py [-h] aoi_vector_path start_date end_date
 
-Extract drought thresholds from https://h2o.aer.com/thredds/dodsC/gwsc/gdm and produce a CSV that breaks down analysis by year to highlight how many months
-experience drought in 1/3, 1/2, and 2/3 of region. Results
+Extract SPEI12 thresholds from https://h2o.aer.com/thredds/dodsC/gwsc/gdm and produce a CSV that breaks down analysis by year to highlight how many months
+experience drought in 1/3, 1/2, and 2/3 of region. Results are in three files: (1) spei12_drought_info_raw_{aoi}.csv contains month by month aggregates, (2)
+spei12_drought_events_by_pixel_{aoi}.tif contains pixels whose values are the number of months drought during the query time range and (3)
+spei12_drought_info_by_year_{aoi}.csv, summaries of total number of drought events per year in the AOI.
 
 positional arguments:
   aoi_vector_path  Path to vector/shapefile of area of interest
