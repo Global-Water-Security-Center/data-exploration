@@ -7,6 +7,7 @@ import sys
 import os
 
 from rasterio.transform import Affine
+import utils
 import geopandas
 import numpy
 import pandas
@@ -110,7 +111,7 @@ def main():
                             valid_drought_pixels)
                     table_file.write(f',{monthly_drought_pixel_count}')
 
-                LOGGER.debug(f'{month_date} - {monthly_drought_pixel_count}')
+                LOGGER.debug(f'{month_date} - {monthly_drought_pixel_count} drought pixels found')
                 for threshold_id, area_threshold in [
                         ('1/3', 1/3), ('1/2', 1/2), ('2/3', 2/3)]:
                     if monthly_drought_pixel_count/valid_pixel_count >= area_threshold:
@@ -119,8 +120,8 @@ def main():
             LOGGER.debug('done with scheduling')
 
     file_basename = (
-        f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}'
-        f'_{args.start_date}_{args.end_date}')
+        f'{utils.file_basename(args.aoi_vector_path)}_'
+        f'{args.start_date}_{args.end_date}')
     table_path = f'''drought_info_by_year_{file_basename}.csv'''
     with open(table_path, 'w') as table_file:
         table_file.write('year,n months with 1/3 drought in region,n months with 1/2 drought in region,n months with 2/3 drought in region\n')
@@ -136,7 +137,7 @@ def main():
         minx - res / 2,
         maxy + res / 2) * Affine.scale(res, -res)
     raster_path = (
-        f'drought_events_by_pixel_{args.start_date}_{args.end_date}.tif')
+        f'drought_events_by_pixel_{file_basename}.tif')
     nodata = -1
     # for some reason the mask is transposed in this netcat file
     running_drought_count_array[~valid_mask.transpose()] = nodata

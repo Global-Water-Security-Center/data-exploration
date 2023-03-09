@@ -1,6 +1,7 @@
 """Shared functions across the data-exploration library."""
 import calendar
 import datetime
+import os
 
 
 def build_monthly_ranges(start_date, end_date):
@@ -32,3 +33,12 @@ def build_monthly_ranges(start_date, end_date):
         # this kicks it to next month
         current_day = last_day+datetime.timedelta(days=1)
     return date_range_list
+
+
+def file_basename(path):
+    """Return base file path, or last directory."""
+    basename = os.path.basename(os.path.splitext(path)[0])
+    if basename == '':
+        # do last directory
+        basename = os.path.normpath(path).split(os.sep)[-1]
+    return basename
