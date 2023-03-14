@@ -146,7 +146,9 @@ def main():
         f'spei12_drought_events_by_pixel_{file_basename}.tif')
     nodata = -1
     # for some reason the mask is transposed in this netcat file
-    running_drought_count_array[~valid_mask.transpose()] = nodata
+    LOGGER.debug(valid_mask.shape)
+    LOGGER.debug(running_drought_count_array.shape)
+    running_drought_count_array[~(valid_mask.transpose())] = nodata
     new_dataset = rasterio.open(
         raster_path,
         'w',

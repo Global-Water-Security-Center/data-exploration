@@ -167,7 +167,6 @@ def main():
             precip_over_all_time_path, gdal.OF_RASTER | gdal.GA_Update)
         b = r.GetRasterBand(1)
         # mask out nodata
-        #running_sum[array == nodata] = nodata
         b.WriteArray(running_sum)
         b = None
         r = None
