@@ -1,5 +1,4 @@
-"""Annual mean precipitation and temp in a watershed(s) over a given time
-period."""
+"""See `python scriptname.py --help"""
 import argparse
 import calendar
 import collections

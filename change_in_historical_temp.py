@@ -1,4 +1,4 @@
-"""Utility to extract CIMP5 data from GEE."""
+"""See `python scriptname.py --help"""
 import argparse
 import collections
 import datetime

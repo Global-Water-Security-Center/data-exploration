@@ -1,4 +1,4 @@
-"""Calculate average monthly events over a given time period."""
+"""See `python scriptname.py --help"""
 import argparse
 import os
 import concurrent

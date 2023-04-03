@@ -1,4 +1,4 @@
-"""Netcat to COG geotiff."""
+"""See `python scriptname.py --help"""
 import glob
 import os
 

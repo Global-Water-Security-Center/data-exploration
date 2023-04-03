@@ -1,18 +1,4 @@
-"""Experiment to:
-
-Get the historical 95th percentile of rain in one day as a threshold to
-    establish what a heavy rain event looks like and report the number of
-    heavy rain days per year in the historical time period (can be averaged
-    over the time period if that’s useful)
-Using that same heavy rain event threshold, report the number of heavy rain
-    days per year for the three future time steps (could also be averaged over
-    each time step if that's useful)
-
-user analysis:
-
-Are there many more heavy rain days in future time steps than there were in
-    the historical time period?
-"""
+"""See `python scriptname.py --help"""
 import argparse
 import glob
 import logging
@@ -35,8 +21,22 @@ LOGGER.setLevel(logging.DEBUG)
 def main():
     """Entrypoint."""
     parser = argparse.ArgumentParser(description=(
-        'Not a command line script. Exploration of 95th percentile of '
-        'historical rain events to predict future rain events.'))
+        """Not a command line script. Experiment to:
+
+Get the historical 95th percentile of rain in one day as a threshold to
+    establish what a heavy rain event looks like and report the number of
+    heavy rain days per year in the historical time period (can be averaged
+    over the time period if that’s useful)
+Using that same heavy rain event threshold, report the number of heavy rain
+    days per year for the three future time steps (could also be averaged over
+    each time step if that's useful)
+
+user analysis:
+
+Are there many more heavy rain days in future time steps than there were in
+    the historical time period?
+"""
+))
     _ = parser.parse_args()
     for table_path in glob.glob("CIMP5_hyd_bas_L3_HYBAS_ID_*.csv"):
         watershed_id = table_path.split('CIMP5_hyd_bas_L3_HYBAS_ID_')[1][:-4]

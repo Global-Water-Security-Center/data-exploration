@@ -1,4 +1,4 @@
-"""Extract drought monitoring data from user provided AOI."""
+"""See `python scriptname.py --help"""
 import concurrent
 import collections
 import argparse

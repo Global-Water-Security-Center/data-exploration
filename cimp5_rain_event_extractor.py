@@ -1,4 +1,4 @@
-"""Utility to extract rain events from CIMP5 data."""
+"""See `python scriptname.py --help"""
 import argparse
 import collections
 import concurrent

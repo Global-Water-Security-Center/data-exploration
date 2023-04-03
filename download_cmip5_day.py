@@ -1,3 +1,4 @@
+"""See `python scriptname.py --help"""
 import argparse
 import ee
 import logging

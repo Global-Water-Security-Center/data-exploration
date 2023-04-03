@@ -1,4 +1,4 @@
-"""Demo of how to slice the GDM dataset by date range and save to geotiff"""
+"""See `python scriptname.py --help"""
 import argparse
 import rioxarray
 import xarray
