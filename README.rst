@@ -132,8 +132,10 @@ extract_drought_thresholds_from_aer_gdm.py
 ------------------------------------------
 usage: extract_drought_thresholds_from_aer_gdm.py [-h] aoi_vector_path start_date end_date
 
-Extract drought thresholds from https://h2o.aer.com/thredds/dodsC/gwsc/gdm and produce a CSV that breaks down analysis by year to highlight how many months
-experience drought in 1/3, 1/2, and 2/3 of region.
+Extract SPEI12 thresholds from https://h2o.aer.com/thredds/dodsC/gwsc/gdm and produce a CSV that breaks down analysis by year to highlight how many months
+experience drought in 1/3, 1/2, and 2/3 of region. Results are in three files: (1) spei12_drought_info_raw_{aoi}.csv contains month by month aggregates, (2)
+spei12_drought_events_by_pixel_{aoi}.tif contains pixels whose values are the number of months drought during the query time range and (3)
+spei12_drought_info_by_year_{aoi}.csv, summaries of total number of drought events per year in the AOI.
 
 positional arguments:
   aoi_vector_path  Path to vector/shapefile of area of interest
@@ -162,8 +164,8 @@ monthly_and_annual_precip_temp_in_watershed.py
 ----------------------------------------------
 usage: monthly_and_annual_precip_temp_in_watershed.py [-h] [--authenticate] path_to_watersheds start_date end_date
 
-Given a region and a time period, create two tables (1) monthly precip and mean temporature and (2) showing annual rainfall, as well as two rasters (3)
-total precip sum in AOI and (4) overall monthly temperture mean in the AOI.
+Given a region and a time period create four tables (1) monthly precip and mean temperature and (2) annual rainfall, (3) monthly normal temp, and (4)
+monthly normal precip over the query time period as well as two rasters: (5) total precip sum over AOI and (6) overall monthly temperture mean in the AOI.
 
 positional arguments:
   path_to_watersheds  Path to vector/shapefile of watersheds
@@ -195,8 +197,9 @@ storm_event_detection.py
 ------------------------
 usage: storm_event_detection.py [-h] [--authenticate] [--rain_event_threshold RAIN_EVENT_THRESHOLD] path_to_watersheds start_date end_date
 
-Detect storm events in a 48 hour window using a threshold for precip. Result is a geotiff raster whose pixels show the count of detected rain events within
-a 48 hour period with the suffix ``_48hr_avg_precip_events.tif``.
+Detect storm events in a 48 hour window using a threshold for precip. Result is located in a directory called `workspace_{vector name}` and contains rasters
+for each month over the time period showing nubmer of precip events per pixel, a raster prefixed with "overall_" showing the overall storm event per pixel,
+and a CSV table prefixed with the vector basename and time range showing number of events in the region per month.
 
 positional arguments:
   path_to_watersheds    Path to vector/shapefile of watersheds
@@ -208,4 +211,7 @@ options:
   --authenticate        Pass this flag if you need to reauthenticate with GEE
   --rain_event_threshold RAIN_EVENT_THRESHOLD
                         amount of rain (mm) in a day to count as a rain event
+
+utils.py
+--------
 

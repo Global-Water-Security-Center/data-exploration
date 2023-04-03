@@ -1,6 +1,0 @@
-:: docker run --rm -it -v %CD%:/var/workspace climate-indicies process_climate_indices --help
-CALL docker run --rm -it -v %CD%:/var/workspace climate-indicies process_climate_indices --index spi --periodicity monthly --output_file_base spi --netcdf_precip nclimgrid-prcp.nc --var_name_precip prcp --scales 60 --calibration_start_year 2000 --calibration_end_year 2010
-CALL docker run --rm -it -v %CD%:/var/workspace climate-indicies process_climate_indices --index spei --periodicity monthly --output_file_base spei --netcdf_precip nclimgrid-prcp.nc --var_name_precip prcp --netcdf_temp nclimgrid-tavg.nc --var_name_temp tavg --scales 60 --calibration_start_year 2000 --calibration_end_year 2010
-CALL docker run --rm -it -v %CD%:/var/workspace climate-indicies process_climate_indices --index pnp --periodicity monthly --output_file_base pnp --netcdf_precip nclimgrid-prcp.nc --var_name_precip prcp --scales 60 --calibration_start_year 2000 --calibration_end_year 2010
-:: Palmers is  Missing the required available water capacity file
-CALL docker run --rm -it -v %CD%:/var/workspace climate-indicies process_climate_indices --index palmers --periodicity monthly --output_file_base palmers --netcdf_precip nclimgrid-prcp.nc --var_name_precip prcp --netcdf_temp nclimgrid-tavg.nc --var_name_temp tavg --scales 60 --calibration_start_year 2000 --calibration_end_year 2010
