@@ -13,47 +13,79 @@ import xarray
 def main():
     """Entrypoint."""
     parser = argparse.ArgumentParser(description=(
-        'not a command line script -- used to process local '
-        '`Kenya_drought_2012-01-01_2022-03-01_v2.nc`'))
+        'Convert netcat files to geotiff'))
+    parser.add_argument(
+        'netcat_path', type=str,
+        help='Path or pattern to netcat files to convert')
+    parser.add_argument(
+        'x_y_fields', nargs=2,
+        help='the names of the x and y coordinates in the netcat file')
+    parser.add_argument(
+        '--target_nodata', type=float,
+        help='Set this as target nodata value if desired')
+    parser.add_argument('out_dir', help='path to output directory')
+    args = parser.parse_args()
     _ = parser.parse_args()
-    for nc_path in glob.glob(r"D:\repositories\data-exploration\Kenya_drought_2012-01-01_2022-03-01_v2.nc"):
+    os.makedirs(args.out_dir, exist_ok=True)
+    for nc_path in glob.glob(args.netcat_path):
+        print(f'processing {nc_path}')
+        dataset = xarray.open_dataset(nc_path)
 
-        gdm_dataset = xarray.open_dataset(nc_path)
+        res_list = []
+        coord_list = []
+        for coord_id, field_id in zip(['x', 'y'], args.x_y_fields):
+            if field_id not in dataset.coords:
+                raise ValueError(
+                    f'Expected {field_id} in coordinates but only found '
+                    f'{list(dataset.coords.keys())}')
+            coord_array = dataset.coords[field_id]
+            res_list.append(float(
+                (coord_array[-1] - coord_array[0]) / len(coord_array)))
+            coord_list.append(coord_array)
+
+        transform = Affine.translation(
+            *[a[0] for a in coord_list]) * Affine.scale(*res_list)
+
         basename = os.path.basename(os.path.splitext(nc_path)[0])
 
-        #print(basename, gdm_dataset)
-        # get exact coords for correct geotransform
-        xres = float((gdm_dataset.lon[-1] - gdm_dataset.lon[0]) / len(gdm_dataset.lon))
-        yres = float((gdm_dataset.lat[-1] - gdm_dataset.lat[0]) / len(gdm_dataset.lat))
-        transform = Affine.translation(
-            gdm_dataset.lon[0], gdm_dataset.lat[0]) * Affine.scale(xres, yres)
+        # #print(basename, gdm_dataset)
+        # # get exact coords for correct geotransform
+        # xres = float((gdm_dataset.lon[-1] - gdm_dataset.lon[0]) / len(gdm_dataset.lon))
+        # yres = float((gdm_dataset.lat[-1] - gdm_dataset.lat[0]) / len(gdm_dataset.lat))
+        # transform = Affine.translation(
+        #     gdm_dataset.lon[0], gdm_dataset.lat[0]) * Affine.scale(xres, yres)
 
-        with rasterio.open(
-            f"{basename}_from_nc.tif",
-            mode="w",
-            driver="GTiff",
-            height=len(gdm_dataset.lat),
-            width=len(gdm_dataset.lon),
-            count=len(gdm_dataset.time),
-            dtype=numpy.float32,
-            nodata=0,
-            crs="+proj=latlong",
-            transform=transform,
-            kwargs={
-                'tiled': 'YES',
-                'COMPRESS': 'LZW',
-                'PREDICTOR': 2}) as new_dataset:
-            gdm_dataset = gdm_dataset.sel(
-                time=pandas.date_range(start='2012-01-01', end='2022-03-01', freq='MS'))
-            for date_index in range(len(gdm_dataset.time)):
-                # there's only one so just get the first one
+        for variable_name in dataset.keys():
+            target_dir = os.path.join(args.out_dir, variable_name)
+            os.makedirs(target_dir, exist_ok=True)
+            with rasterio.open(
+                os.path.join(target_dir, f"{basename}_{variable_name}.tif"),
+                mode="w",
+                driver="GTiff",
+                height=len(coord_list[1]),
+                width=len(coord_list[0]),
+                count=1,
+                dtype=numpy.float32,
+                nodata=None,
+                crs="+proj=latlong",
+                transform=transform,
+                **{
+                    'tiled': 'YES',
+                    'COMPRESS': 'LZW',
+                    'PREDICTOR': 2}) as new_dataset:
 
-                data_key = next(iter(gdm_dataset.isel(time=date_index).data_vars))
-                #print(next(iter(gdm_dataset.isel(time=date_index).data_vars)))
-                print(f'writing band {basename} {date_index} of {len(gdm_dataset.time)}')
-                #print(gdm_dataset.isel(time=date_index)[data_key])
-                #new_dataset.write(gdm_dataset.isel(time=date_index)[data_key], 1+date_index)
-                new_dataset.write(gdm_dataset.isel(time=date_index)[data_key], 1+date_index)
+                new_dataset.write(dataset[variable_name])
+
+                # gdm_dataset = gdm_dataset.sel(
+                #     time=pandas.date_range(start='2012-01-01', end='2022-03-01', freq='MS'))
+                # for date_index in range(len(gdm_dataset.time)):
+                #     # there's only one so just get the first one
+                #   data_key = next(iter(gdm_dataset.isel(time=date_index).data_vars))
+                #   #print(next(iter(gdm_dataset.isel(time=date_index).data_vars)))
+                #   print(f'writing band {basename} {date_index} of {len(gdm_dataset.time)}')
+                #   #print(gdm_dataset.isel(time=date_index)[data_key])
+                #   #new_dataset.write(gdm_dataset.isel(time=date_index)[data_key], 1+date_index)
+                #   new_dataset.write(gdm_dataset.isel(time=date_index)[data_key], 1+date_index)
 
 
 if __name__ == '__main__':
