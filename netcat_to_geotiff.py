@@ -48,13 +48,6 @@ def main():
 
         basename = os.path.basename(os.path.splitext(nc_path)[0])
 
-        # #print(basename, gdm_dataset)
-        # # get exact coords for correct geotransform
-        # xres = float((gdm_dataset.lon[-1] - gdm_dataset.lon[0]) / len(gdm_dataset.lon))
-        # yres = float((gdm_dataset.lat[-1] - gdm_dataset.lat[0]) / len(gdm_dataset.lat))
-        # transform = Affine.translation(
-        #     gdm_dataset.lon[0], gdm_dataset.lat[0]) * Affine.scale(xres, yres)
-
         for variable_name in dataset.keys():
             target_dir = os.path.join(args.out_dir, variable_name)
             os.makedirs(target_dir, exist_ok=True)
