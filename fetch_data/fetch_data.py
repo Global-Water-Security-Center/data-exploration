@@ -1,6 +1,4 @@
 """See `python scriptname.py --help"""
-import argparse
-import configparser
 import csv
 import datetime
 import logging
@@ -26,10 +24,8 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
-
 DB_FILE = 'file_registry.sqlite'
 DB_ENGINE = create_engine(f"sqlite:///{DB_FILE}", echo=False)
-GLOBAL_INI_PATH = 'defaults.ini'
 
 
 class Base(DeclarativeBase):
@@ -81,13 +77,13 @@ def fetch_file(
     )
 
     date_format = global_config[f'{dataset_id}_date_format']
-    formatted_date = datetime.datetime.strptime(date_str, date_format).strftime(
-        date_format)
+    formatted_date = datetime.datetime.strptime(
+        date_str, date_format).strftime(date_format)
 
     with Session(DB_ENGINE) as session:
         stmt = sqlalchemy.select(File).where(and_(
             File.dataset_id == dataset_id,
-            #File.variable_id == variable_id,
+            File.variable_id == variable_id,
             File.date_str == formatted_date))
         result = session.execute(stmt).first()[0]
 
@@ -113,29 +109,3 @@ def fetch_file(
         session.add(file_entry)
         session.commit()
     return target_path
-
-
-def main():
-    """Entry point."""
-    global_config = configparser.ConfigParser(allow_no_value=True)
-    global_config.read(GLOBAL_INI_PATH)
-    global_config = global_config['defaults']
-    available_commands = global_config['available_commands'].split(',')
-    available_data = global_config['available_data'].split(',')
-    parser = argparse.ArgumentParser(description='Data platform entry point')
-    parser.add_argument('command', help=(
-        'Command to execute, one of: ' + ', '.join(available_commands)))
-    parser.add_argument('dataset_id', help=(
-        'Dataset ID to operate on, one of: ' + ', '.join(available_data)))
-    parser.add_argument('variable_id', help=(
-        'Variable in that dataset, should be known to the caller.'))
-    parser.add_argument('date', help='Date in the form of YYYY-MM-DD')
-    args = parser.parse_args()
-
-    target_path = fetch_file(
-        global_config, args.dataset_id, args.variable_id, args.date)
-    print(f'downloaded to: {target_path}')
-
-
-if __name__ == '__main__':
-    main()
