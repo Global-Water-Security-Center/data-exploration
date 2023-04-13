@@ -68,6 +68,7 @@ def fetch_file(dataset_id, variable_id, date_str):
     """
     global_config = configparser.ConfigParser(allow_no_value=True)
     global_config.read(GLOBAL_INI_PATH)
+    global_config = global_config['defaults']
     access_key_path = os.path.join(
         os.path.dirname(__file__),
         global_config[f'{dataset_id}_access_key'])
