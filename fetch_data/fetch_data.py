@@ -31,10 +31,12 @@ DB_ENGINE = create_engine(f"sqlite:///{DB_FILE}", echo=False)
 GLOBAL_INI_PATH = os.path.join(os.path.dirname(__file__), 'defaults.ini')
 
 
+# Need this because we can't subclass it directly
 class Base(DeclarativeBase):
     pass
 
 
+# Table to store local file locations
 class File(Base):
     __tablename__ = "file_to_location"
     id_val = mapped_column(Integer, primary_key=True)
@@ -52,6 +54,7 @@ class File(Base):
             f'date_str={self.file_path!r}')
 
 
+# create the table if it doesn't exist
 Base.metadata.create_all(DB_ENGINE)
 
 
