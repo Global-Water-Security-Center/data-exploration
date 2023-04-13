@@ -13,6 +13,8 @@ import geopandas
 import numpy
 import requests
 
+from . import fetch_data
+
 ERA5_RESOLUTION_M = 27830
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
 

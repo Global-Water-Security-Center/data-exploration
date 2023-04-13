@@ -1,4 +1,5 @@
 """See `python scriptname.py --help"""
+import configparser
 import csv
 import datetime
 import logging
@@ -27,6 +28,8 @@ LOGGER.setLevel(logging.DEBUG)
 DB_FILE = os.path.join(os.path.dirname(__file__), 'file_registry.sqlite')
 DB_ENGINE = create_engine(f"sqlite:///{DB_FILE}", echo=False)
 
+GLOBAL_INI_PATH = os.path.join(os.path.dirname(__file__), 'defaults.ini')
+
 
 class Base(DeclarativeBase):
     pass
@@ -52,13 +55,10 @@ class File(Base):
 Base.metadata.create_all(DB_ENGINE)
 
 
-def fetch_file(
-        global_config, dataset_id, variable_id, date_str):
+def fetch_file(dataset_id, variable_id, date_str):
     """Fetch a file from remote data store to local target path.
 
     Args:
-        global_config (configparser object): contains info about location
-            of data buckets and local storage
         dataset_id (str): dataset defined by config
         variable_id (str): variable id that's consistent with dataset
         date_str (str): date to query that's consistent with the dataset
@@ -66,6 +66,8 @@ def fetch_file(
     Returns:
         (str) path to local downloaded file.
     """
+    global_config = configparser.ConfigParser(allow_no_value=True)
+    global_config.read(GLOBAL_INI_PATH)
     access_key_path = os.path.join(
         os.path.dirname(__file__),
         global_config[f'{dataset_id}_access_key'])
