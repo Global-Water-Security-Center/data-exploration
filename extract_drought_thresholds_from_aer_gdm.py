@@ -4,7 +4,6 @@ import collections
 import argparse
 import logging
 import sys
-import os
 
 from rasterio.transform import Affine
 import utils

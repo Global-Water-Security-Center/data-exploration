@@ -24,7 +24,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 LOGGER.setLevel(logging.DEBUG)
 
-DB_FILE = 'file_registry.sqlite'
+DB_FILE = os.path.join(os.path.dirname(__file__), 'file_registry.sqlite')
 DB_ENGINE = create_engine(f"sqlite:///{DB_FILE}", echo=False)
 
 
@@ -66,8 +66,14 @@ def fetch_file(
     Returns:
         (str) path to local downloaded file.
     """
-    reader = csv.DictReader(
-        open(global_config[f'{dataset_id}_access_key']))
+    access_key_path = os.path.join(
+        os.path.dirname(__file__),
+        global_config[f'{dataset_id}_access_key'])
+    if not os.path.exists(access_key_path):
+        raise ValueError(
+            f'expected a keyfile to access the S3 bucket at {access_key_path} '
+            'but not found')
+    reader = csv.DictReader(open(access_key_path))
     bucket_access_dict = next(reader)
     s3 = boto3.resource(
         's3',
@@ -85,14 +91,16 @@ def fetch_file(
             File.dataset_id == dataset_id,
             File.variable_id == variable_id,
             File.date_str == formatted_date))
-        result = session.execute(stmt).first()[0]
+        result = session.execute(stmt).first()
 
     if result is not None:
-        return result.file_path
+        LOGGER.debug('locally cached!')
+        return result[0].file_path
 
     filename = global_config[f'{dataset_id}_file_format'].format(
         variable=variable_id, date=formatted_date)
-    target_path = os.path.join(global_config['cache_dir'], filename)
+    target_path = os.path.join(
+        os.path.dirname(__file__), global_config['cache_dir'], filename)
     if not os.path.exists(target_path):
         dataset_bucket = s3.Bucket(global_config[f'{dataset_id}_bucket_id'])
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
