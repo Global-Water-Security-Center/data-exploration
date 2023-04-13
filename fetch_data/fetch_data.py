@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 
+from retrying import retry
 from sqlalchemy import create_engine
 from sqlalchemy import Integer
 from sqlalchemy import Text
@@ -58,6 +59,7 @@ class File(Base):
 Base.metadata.create_all(DB_ENGINE)
 
 
+@retry(wait_exponential_multiplier=50, wait_exponential_max=10000, stop_max_attempt_number=7)
 def fetch_file(dataset_id, variable_id, date_str):
     """Fetch a file from remote data store to local target path.
 
