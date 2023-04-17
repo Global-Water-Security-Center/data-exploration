@@ -45,8 +45,10 @@ def _daterange(start_date, end_date):
         yield start_date + datetime.timedelta(n)
 
 
-def _process_month_op(nodata, rain_event_threshold):
-    def _process_month(*precip_array):
+def _process_month(
+        clip_path_band_list, nodata, rain_event_threshold,
+        target_monthly_precip_path):
+    def _process_month_op(*precip_array):
         result = numpy.zeros(precip_array[0].shape, dtype=int)
         valid_mask = numpy.zeros(result.shape, dtype=bool)
         for precip_a, precip_b in zip(
@@ -57,7 +59,11 @@ def _process_month_op(nodata, rain_event_threshold):
             valid_mask |= local_mask
         result[~valid_mask] = nodata
         return result
-    return _process_month
+
+    geoprocessing.raster_calculator(
+        clip_path_band_list,
+        _process_month_op,
+        target_monthly_precip_path, gdal.GDT_Int32, nodata)
 
 
 def main():
@@ -145,11 +151,10 @@ def main():
             workspace_dir, f'''{vector_basename}_48hr_avg_precip_events_{
             start_date}_{end_date}.tif''')
         monthly_precip_task = task_graph.add_task(
-            func=geoprocessing.raster_calculator,
+            func=_process_month,
             args=(
-                clip_path_band_list,
-                _process_month_op(mask_nodata, args.rain_event_threshold),
-                monthly_precip_path, gdal.GDT_Int32, mask_nodata),
+                clip_path_band_list, mask_nodata, args.rain_event_threshold,
+                monthly_precip_path),
             target_path_list=[monthly_precip_path],
             dependent_task_list=clip_task_list,
             task_name=f'process month {monthly_precip_path}')
@@ -192,7 +197,9 @@ def main():
     b.WriteArray(running_sum)
     b = None
     r = None
-    print(f'all done ({time.time()-start_time:.2f})s, results in {workspace_dir}')
+    print(
+        f'all done ({time.time()-start_time:.2f})s, results in '
+        f'{workspace_dir}')
 
     task_graph.join()
     task_graph.close()
