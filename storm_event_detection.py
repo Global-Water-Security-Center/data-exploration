@@ -1,11 +1,18 @@
 """See `python scriptname.py --help"""
 import argparse
-import concurrent
 import datetime
 import logging
+import multiprocessing
+import os
+import shutil
 import sys
+import time
 
+from osgeo import gdal
 from utils import build_monthly_ranges
+from ecoshard import geoprocessing
+from ecoshard import taskgraph
+import numpy
 import requests
 
 from fetch_data import fetch_data
@@ -38,7 +45,23 @@ def _daterange(start_date, end_date):
         yield start_date + datetime.timedelta(n)
 
 
+def _process_month_op(nodata, rain_event_threshold):
+    def _process_month(*precip_array):
+        result = numpy.zeros(precip_array[0].shape, dtype=int)
+        valid_mask = numpy.zeros(result.shape, dtype=bool)
+        for precip_a, precip_b in zip(
+                precip_array[:-1], precip_array[1:]):
+            # convert to mm and average by /2 for 48 hr period
+            local_mask = (precip_a+precip_b)/2 >= rain_event_threshold
+            result += local_mask
+            valid_mask |= local_mask
+        result[~valid_mask] = nodata
+        return result
+    return _process_month
+
+
 def main():
+    start_time = time.time()
     parser = argparse.ArgumentParser(description=(
         'Detect storm events in a 48 hour window using a threshold for '
         'precip. Result is located in a directory called '
@@ -62,125 +85,117 @@ def main():
         help='amount of rain (mm) in a day to count as a rain event')
     args = parser.parse_args()
 
-    # if args.authenticate:
-    #     ee.Authenticate()
-    #     return
-    # ee.Initialize()
+    vector_basename = os.path.basename(
+        os.path.splitext(args.path_to_watersheds)[0])
+    vector_info = geoprocessing.get_vector_info(args.path_to_watersheds)
+    project_basename = (
+        f'''{vector_basename}_{args.start_date}_{args.end_date}''')
+    workspace_dir = f'workspace_{project_basename}'
 
-    # # convert to GEE polygon
-    # vector_basename = os.path.basename(
-    #     os.path.splitext(args.path_to_watersheds)[0])
-    # project_basename = (
-    #     f'''{vector_basename}_{args.start_date}_{args.end_date}''')
-    # workspace_dir = f'workspace_{project_basename}'
-    # os.makedirs(workspace_dir, exist_ok=True)
-    # gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
-    # local_shapefile_path = os.path.join(
-    #     workspace_dir, '_local_ok_to_delete.shp')
-    # gp_poly.to_file(local_shapefile_path)
-    # gp_poly = None
-    # ee_poly = geemap.shp_to_ee(local_shapefile_path)
-    # os.remove(local_shapefile_path)
+    task_graph = taskgraph.TaskGraph(
+        workspace_dir, multiprocessing.cpu_count(), 15.0)
 
     monthly_date_range_list = build_monthly_ranges(
         args.start_date, args.end_date)
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        raster_download_list = []
-        for start_date, end_date in monthly_date_range_list:
-            start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-            end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
-            for date in _daterange(start_day, end_day):
-                date_str = date.strftime('%Y-%m-%d')
-                raster_download_list.append(
-                    (date_str, executor.submit(
-                        fetch_data.fetch_file,
-                        DATASET_ID, VARIABLE_ID, date_str)))
+    clip_dir = os.path.join(workspace_dir, 'clip')
+    os.makedirs(clip_dir, exist_ok=True)
+    mask_nodata = -1
+    monthly_precip_path_list = []
+    raster_download_list = []
+    for start_date, end_date in monthly_date_range_list:
+        start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+        end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
-            for date, download_future in raster_download_list:
-                LOGGER.info(f'fetching {date}')
-                raster_path = download_future.result()
-                LOGGER.info(f'got {raster_path}')
+        for date in _daterange(start_day, end_day):
+            date_str = date.strftime('%Y-%m-%d')
+            download_task = task_graph.add_task(
+                func=fetch_data.fetch_file,
+                args=(DATASET_ID, VARIABLE_ID, date_str),
+                store_result=True,
+                task_name=f'download {date_str}')
+            raster_download_list.append((date_str, download_task))
+        clip_path_band_list = []
+        clip_task_list = []
+        for date, download_task in raster_download_list:
+            raster_path = download_task.get()
+            LOGGER.info(f'clip {raster_path} to {args.path_to_watersheds}')
+            clip_path = os.path.join(
+                clip_dir, f'clip_{os.path.basename(raster_path)}')
+            clip_task = task_graph.add_task(
+                func=geoprocessing.warp_raster,
+                args=(
+                    raster_path, (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M),
+                    clip_path, 'near'),
+                kwargs={
+                    'target_projection_wkt': vector_info['projection_wkt'],
+                    'target_bb': vector_info['bounding_box'],
+                    'vector_mask_options': {
+                        'mask_vector_path': args.path_to_watersheds,
+                        'all_touched': True,
+                        'target_mask_value': mask_nodata},
+                    'gdal_warp_options': None,
+                    'working_dir': None},
+                target_path_list=[clip_path],
+                task_name=f'clip {clip_path}')
+            clip_path_band_list.append((clip_path, 1))
+            clip_task_list.append(clip_task)
 
-            return
+        monthly_precip_path = os.path.join(
+            workspace_dir, f'''{vector_basename}_48hr_avg_precip_events_{
+            start_date}_{end_date}.tif''')
+        monthly_precip_task = task_graph.add_task(
+            func=geoprocessing.raster_calculator,
+            args=(
+                clip_path_band_list,
+                _process_month_op(mask_nodata, args.rain_event_threshold),
+                monthly_precip_path, gdal.GDT_Int32, mask_nodata),
+            target_path_list=[monthly_precip_path],
+            dependent_task_list=clip_task_list,
+            task_name=f'process month {monthly_precip_path}')
+        monthly_precip_path_list.append(
+            (monthly_precip_task, start_date[:7], monthly_precip_path))
 
-    #         daily_precip_list = []
-    #         for working_start_day, working_end_day in [
-    #                 (start_day, end_day), (start_day_offset, end_day_offset)]:
-    #             era5_daily_collection = ee.ImageCollection("ECMWF/ERA5/DAILY")
-    #             working_start_day_str = working_start_day.strftime('%Y-%m-%d')
-    #             working_end_day_str = working_end_day.strftime('%Y-%m-%d')
-    #             if working_start_day_str != working_end_day_str:
-    #                 era5_daily_collection = era5_daily_collection.filterDate(
-    #                     working_start_day_str,
-    #                     working_end_day_str)
-    #             else:
-    #                 # just one day
-    #                 era5_daily_collection = era5_daily_collection.filterDate(
-    #                     working_start_day_str)
-    #             # convert to mm and divide by 2 for average
-    #             era5_daily_precip = era5_daily_collection.select(
-    #                 ERA5_TOTAL_PRECIP_BAND_NAME).toBands().multiply(1000/2)
-    #             daily_precip_list.append(era5_daily_precip)
+    precip_over_all_time_path = os.path.join(
+        workspace_dir, f'''overall_{project_basename}_48hr_avg_precip_events_{
+        args.start_date}_{args.end_date}.tif''')
+    with open(
+            f'{os.path.splitext(precip_over_all_time_path)[0]}.csv', 'w') as \
+            csv_table:
+        csv_table.write('year-month,number of storm events in region\n')
+        running_sum = None
+        for monthly_precip_task, month_date, raster_path in \
+                monthly_precip_path_list:
+            monthly_precip_task.join()
+            r = gdal.OpenEx(raster_path)
+            b = r.GetRasterBand(1)
+            array = b.ReadAsArray()
+            nodata = b.GetNoDataValue()
+            b = None
+            r = None
+            csv_table.write(
+                f'{month_date},{numpy.sum(array[array != nodata])}\n')
+            if running_sum is None:
+                running_sum = array
+                valid_mask = array != nodata
+            else:
+                local_valid_mask = array != nodata
+                running_sum[local_valid_mask] += array[local_valid_mask]
+                valid_mask |= local_valid_mask
+            array = None
 
-    #         average_24_precip = daily_precip_list[0].add(
-    #             daily_precip_list[1])
+    # write the final overall raster
+    shutil.copyfile(raster_path, precip_over_all_time_path)
+    r = gdal.OpenEx(precip_over_all_time_path, gdal.OF_RASTER | gdal.GA_Update)
+    b = r.GetRasterBand(1)
+    running_sum[~valid_mask] = mask_nodata
+    b.WriteArray(running_sum)
+    b = None
+    r = None
+    print(f'all done ({time.time()-start_time:.2f})s, results in {workspace_dir}')
 
-    #         era5_daily_precip = average_24_precip.where(
-    #             average_24_precip.lt(args.rain_event_threshold), 0).where(
-    #             average_24_precip.gte(args.rain_event_threshold), 1)
-
-    #         poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
-
-    #         era5_precip_event_sum = era5_daily_precip.reduce('sum').clip(
-    #             ee_poly).mask(poly_mask)
-    #         url = era5_precip_event_sum.getDownloadUrl({
-    #             'region': ee_poly.geometry().bounds(),
-    #             'scale': ERA5_RESOLUTION_M,
-    #             'format': 'GEO_TIFF'
-    #         })
-    #         precip_path = os.path.join(
-    #             workspace_dir, f'''{vector_basename}_48hr_avg_precip_events_{
-    #             start_date}_{end_date}.tif''')
-    #         raster_download_list.append(
-    #             (start_date[:7],
-    #              executor.submit(_download_url, url, precip_path)))
-
-    #     with open(os.path.join(
-    #             workspace_dir, f'{os.path.basename(precip_path)}.csv'),
-    #             'w') as csv_table:
-    #         csv_table.write('year-month,number of storm events in region\n')
-    #         running_sum = None
-    #         for month_date, download_future in raster_download_list:
-    #             print(f'download {month_date}')
-    #             raster_path = download_future.result()
-    #             r = gdal.OpenEx(raster_path)
-    #             b = r.GetRasterBand(1)
-    #             array = b.ReadAsArray()
-    #             nodata = b.GetNoDataValue()
-    #             csv_table.write(
-    #                 f'{month_date},{numpy.sum(array[array != nodata])}\n')
-
-    #             if running_sum is None:
-    #                 running_sum = array
-    #                 valid_mask = array != nodata
-    #             else:
-    #                 running_sum += array
-    #                 valid_mask |= array != nodata
-
-    #     # write the final overall raster
-    #     precip_over_all_time_path = os.path.join(
-    #         workspace_dir, f'''overall_{project_basename}_48hr_avg_precip_events_{
-    #         args.start_date}_{args.end_date}.tif''')
-    #     shutil.copyfile(raster_path, precip_over_all_time_path)
-    #     r = gdal.OpenEx(
-    #         precip_over_all_time_path, gdal.OF_RASTER | gdal.GA_Update)
-    #     b = r.GetRasterBand(1)
-    #     # mask out nodata
-    #     b.WriteArray(running_sum)
-    #     b = None
-    #     r = None
-    # print(f'all done, results in {workspace_dir}')
+    task_graph.join()
+    task_graph.close()
 
 
 if __name__ == '__main__':

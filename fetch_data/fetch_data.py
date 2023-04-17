@@ -100,10 +100,10 @@ def fetch_file(dataset_id, variable_id, date_str):
             File.variable_id == variable_id,
             File.date_str == formatted_date))
         result = session.execute(stmt).first()
-
-    if result is not None:
-        LOGGER.debug('locally cached!')
-        return result[0].file_path
+    if result is not None and os.path.exists(result[0].file_path):
+        local_path = result[0].file_path
+        LOGGER.debug(f'{local_path} is locally cached!')
+        return local_path
 
     filename = global_config[f'{dataset_id}_file_format'].format(
         variable=variable_id, date=formatted_date)
