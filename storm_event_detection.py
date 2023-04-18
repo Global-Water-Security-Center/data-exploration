@@ -54,10 +54,15 @@ def _process_month(
     def _process_month_op(*precip_array):
         result = numpy.zeros(precip_array[0].shape, dtype=int)
         valid_mask = numpy.zeros(result.shape, dtype=bool)
-        for precip_a, precip_b in zip(
-                precip_array[:-1], precip_array[1:]):
-            # convert to mm and average by /2 for 48 hr period
-            local_mask = (precip_a+precip_b)/2 >= rain_event_threshold
+        if len(precip_array) >= 2:
+            for precip_a, precip_b in zip(
+                    precip_array[:-1], precip_array[1:]):
+                # convert to mm and average by /2 for 48 hr period
+                local_mask = (precip_a+precip_b)/2 >= rain_event_threshold
+                result += local_mask
+                valid_mask |= local_mask
+        else:
+            local_mask = precip_a[0] >= rain_event_threshold
             result += local_mask
             valid_mask |= local_mask
         result[~valid_mask] = nodata
@@ -207,7 +212,6 @@ def main():
 
     task_graph.join()
     task_graph.close()
-    shutil.rmtree(workspace_dir)
 
 
 if __name__ == '__main__':
