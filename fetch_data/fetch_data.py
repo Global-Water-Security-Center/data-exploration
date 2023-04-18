@@ -94,7 +94,7 @@ def fetch_file(dataset_id, variable_id, date_str):
         result = session.execute(stmt).first()
     if result is not None and os.path.exists(result[0].file_path):
         local_path = result[0].file_path
-        LOGGER.debug(f'{local_path} is locally cached!')
+        LOGGER.info(f'{local_path} is locally cached!')
         return local_path
 
     filename = global_config[f'{dataset_id}_file_format'].format(
@@ -104,6 +104,7 @@ def fetch_file(dataset_id, variable_id, date_str):
     if not os.path.exists(target_path):
         dataset_bucket = s3.Bucket(global_config[f'{dataset_id}_bucket_id'])
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        LOGGER.info(f'downloading {filename}')
         dataset_bucket.download_file(filename, target_path)
     else:
         LOGGER.warning(f'{target_path} exists but no entry in database')
@@ -116,4 +117,5 @@ def fetch_file(dataset_id, variable_id, date_str):
             file_path=target_path)
         session.add(file_entry)
         session.commit()
+    LOGGER.info(f'result at {target_path}')
     return target_path
