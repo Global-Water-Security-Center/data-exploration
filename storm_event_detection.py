@@ -19,11 +19,11 @@ from fetch_data import fetch_data
 
 logging.basicConfig(
     level=logging.WARNING,
+    stream=sys.stdout,
     format=(
         '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
-        ' [%(funcName)s:%(lineno)d] %(message)s'),
-    stream=sys.stdout)
-LOGGER = logging.getLogger(__name__)
+        ' [%(funcName)s:%(lineno)d] %(message)s'))
+LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
 
 ERA5_RESOLUTION_M = 27830
@@ -41,6 +41,9 @@ def _download_url(url, target_path):
 
 
 def _daterange(start_date, end_date):
+    if start_date == end_date:
+        yield start_date
+        return
     for n in range(int((end_date - start_date).days)):
         yield start_date + datetime.timedelta(n)
 
@@ -60,6 +63,7 @@ def _process_month(
         result[~valid_mask] = nodata
         return result
 
+    LOGGER.info(f'about to process {target_monthly_precip_path}')
     geoprocessing.raster_calculator(
         clip_path_band_list,
         _process_month_op,
@@ -103,16 +107,17 @@ def main():
 
     monthly_date_range_list = build_monthly_ranges(
         args.start_date, args.end_date)
+    LOGGER.debug(monthly_date_range_list)
 
     clip_dir = os.path.join(workspace_dir, 'clip')
     os.makedirs(clip_dir, exist_ok=True)
     mask_nodata = -1
     monthly_precip_path_list = []
-    raster_download_list = []
     for start_date, end_date in monthly_date_range_list:
         start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
         end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
+        raster_download_list = []
         for date in _daterange(start_day, end_day):
             date_str = date.strftime('%Y-%m-%d')
             download_task = task_graph.add_task(
@@ -125,7 +130,6 @@ def main():
         clip_task_list = []
         for date, download_task in raster_download_list:
             raster_path = download_task.get()
-            LOGGER.info(f'clip {raster_path} to {args.path_to_watersheds}')
             clip_path = os.path.join(
                 clip_dir, f'clip_{os.path.basename(raster_path)}')
             clip_task = task_graph.add_task(
@@ -198,11 +202,12 @@ def main():
     b = None
     r = None
     print(
-        f'all done ({time.time()-start_time:.2f})s, results in '
+        f'all done ({time.time()-start_time:.2f}s), results in '
         f'{workspace_dir}')
 
     task_graph.join()
     task_graph.close()
+    shutil.rmtree(workspace_dir)
 
 
 if __name__ == '__main__':

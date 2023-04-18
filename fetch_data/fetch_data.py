@@ -4,7 +4,6 @@ import csv
 import datetime
 import logging
 import os
-import sys
 
 from retrying import retry
 from sqlalchemy import create_engine
@@ -17,14 +16,7 @@ from sqlalchemy.sql.expression import and_
 import boto3
 import sqlalchemy
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format=(
-        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
-        ' [%(funcName)s:%(lineno)d] %(message)s'),
-    stream=sys.stdout)
 LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.DEBUG)
 
 DB_FILE = os.path.join(os.path.dirname(__file__), 'file_registry.sqlite')
 DB_ENGINE = create_engine(f"sqlite:///{DB_FILE}", echo=False)
