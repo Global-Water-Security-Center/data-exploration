@@ -25,6 +25,7 @@ logging.basicConfig(
         ' [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
+logging.getLogger('fetch_data').setLevel(logging.INFO)
 
 ERA5_RESOLUTION_M = 27830
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
@@ -62,7 +63,7 @@ def _process_month(
                 result += local_mask
                 valid_mask |= local_mask
         else:
-            local_mask = precip_a[0] >= rain_event_threshold
+            local_mask = precip_array[0] >= rain_event_threshold
             result += local_mask
             valid_mask |= local_mask
         result[~valid_mask] = nodata
@@ -129,6 +130,7 @@ def main():
                 func=fetch_data.fetch_file,
                 args=(DATASET_ID, VARIABLE_ID, date_str),
                 store_result=True,
+                transient_run=True,
                 task_name=f'download {date_str}')
             raster_download_list.append((date_str, download_task))
         clip_path_band_list = []
