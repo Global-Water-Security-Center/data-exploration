@@ -103,7 +103,6 @@ def main():
 
     vector_basename = os.path.basename(
         os.path.splitext(args.path_to_watersheds)[0])
-    vector_info = geoprocessing.get_vector_info(args.path_to_watersheds)
     project_basename = (
         f'''{vector_basename}_{args.start_date}_{args.end_date}''')
     workspace_dir = f'workspace_{project_basename}'
