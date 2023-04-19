@@ -123,40 +123,24 @@ def main():
         start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
         end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
-        raster_download_list = []
-        for date in _daterange(start_day, end_day):
-            date_str = date.strftime('%Y-%m-%d')
-            download_task = task_graph.add_task(
-                func=fetch_data.fetch_file,
-                args=(DATASET_ID, VARIABLE_ID, date_str),
-                store_result=True,
-                transient_run=True,
-                task_name=f'download {date_str}')
-            raster_download_list.append((date_str, download_task))
         clip_path_band_list = []
         clip_task_list = []
-        for date, download_task in raster_download_list:
-            raster_path = download_task.get()
+        for date in _daterange(start_day, end_day):
+            date_str = date.strftime('%Y-%m-%d')
             clip_path = os.path.join(
-                clip_dir, f'clip_{os.path.basename(raster_path)}')
-            clip_task = task_graph.add_task(
-                func=geoprocessing.warp_raster,
+                clip_dir, f'clip_{DATASET_ID}_{VARIABLE_ID}_{date_str}')
+
+            fetch_and_clip_task = task_graph.add_task(
+                func=fetch_data.fetch_and_clip,
                 args=(
-                    raster_path, (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M),
-                    clip_path, 'near'),
-                kwargs={
-                    'target_projection_wkt': vector_info['projection_wkt'],
-                    'target_bb': vector_info['bounding_box'],
-                    'vector_mask_options': {
-                        'mask_vector_path': args.path_to_watersheds,
-                        'all_touched': True,
-                        'target_mask_value': mask_nodata},
-                    'gdal_warp_options': None,
-                    'working_dir': None},
+                    DATASET_ID, VARIABLE_ID, date_str,
+                    (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M),
+                    args.path_to_watersheds, clip_path),
+                kwargs={'all_touched': True, 'target_mask_value': mask_nodata},
                 target_path_list=[clip_path],
-                task_name=f'clip {clip_path}')
+                task_name=f'fetch and clip {clip_path}')
             clip_path_band_list.append((clip_path, 1))
-            clip_task_list.append(clip_task)
+            clip_task_list.append(fetch_and_clip_task)
 
         monthly_precip_path = os.path.join(
             workspace_dir, f'''{vector_basename}_48hr_avg_precip_events_{

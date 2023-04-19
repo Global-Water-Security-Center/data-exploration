@@ -5,6 +5,7 @@ import datetime
 import logging
 import os
 
+from ecoshard import geoprocessing
 from retrying import retry
 from sqlalchemy import create_engine
 from sqlalchemy import Integer
@@ -49,6 +50,34 @@ class File(Base):
 
 # create the table if it doesn't exist
 Base.metadata.create_all(DB_ENGINE)
+
+
+def fetch_and_clip(
+        dataset_id, variable_id, date_str, pixel_size, clip_vector_path,
+        target_raster_path, all_touched=True, target_mask_value=None):
+    """Download and clip a file to a vector coverage.
+
+    Args:
+        dataset_id (str): dataset defined by config
+        variable_id (str): variable id that's consistent with dataset
+        date_str (str): date to query that's consistent with the dataset
+        pixel_size (tuple): target clip pixel size in units of the vector
+        clip_vector_path (str): path to vector to clip against
+        all_touched (bool): if True, clip keeps any pixels whose edge is
+            contained in the vector
+        target_mask_value (numeric): if not None, set the value of pixels
+            outside the vector coverage to this value.
+    """
+    local_raster_path = fetch_file(dataset_id, variable_id, date_str)
+    vector_info = geoprocessing.get_vector_info(clip_vector_path)
+    geoprocessing.warp_raster(
+        local_raster_path, pixel_size, target_raster_path, 'near',
+        target_projection_wkt=vector_info['projection_wkt'],
+        target_bb=vector_info['bounding_box'],
+        vector_mask_options={
+            'mask_vector_path': clip_vector_path,
+            'all_touched': all_touched,
+            'target_mask_value': target_mask_value})
 
 
 @retry(wait_exponential_multiplier=50, wait_exponential_max=10000, stop_max_attempt_number=7)
