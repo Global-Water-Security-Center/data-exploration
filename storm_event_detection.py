@@ -10,12 +10,14 @@ import time
 
 from osgeo import gdal
 from utils import build_monthly_ranges
+from utils import daterange
 from ecoshard import geoprocessing
 from ecoshard import taskgraph
 import numpy
 import requests
 
 from fetch_data import fetch_data
+
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -39,14 +41,6 @@ def _download_url(url, target_path):
     with open(target_path, 'wb') as fd:
         fd.write(response.content)
     return target_path
-
-
-def _daterange(start_date, end_date):
-    if start_date == end_date:
-        yield start_date
-        return
-    for n in range(int((end_date - start_date).days)):
-        yield start_date + datetime.timedelta(n)
 
 
 def _process_month(
@@ -94,9 +88,6 @@ def main():
     parser.add_argument(
         'end_date', help='start date for summation (YYYY-MM-DD) format')
     parser.add_argument(
-        '--authenticate', action='store_true',
-        help='Pass this flag if you need to reauthenticate with GEE')
-    parser.add_argument(
         '--rain_event_threshold', default=0.1, type=float,
         help='amount of rain (mm) in a day to count as a rain event')
     args = parser.parse_args()
@@ -124,7 +115,7 @@ def main():
 
         clip_path_band_list = []
         clip_task_list = []
-        for date in _daterange(start_day, end_day):
+        for date in daterange(start_day, end_day):
             date_str = date.strftime('%Y-%m-%d')
             clip_path = os.path.join(
                 clip_dir, f'clip_{DATASET_ID}_{VARIABLE_ID}_{date_str}')

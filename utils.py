@@ -35,6 +35,15 @@ def build_monthly_ranges(start_date, end_date):
     return date_range_list
 
 
+def daterange(start_date, end_date):
+    """Generator produces all ``datetimes`` between start and end."""
+    if start_date == end_date:
+        yield start_date
+        return
+    for n in range(int((end_date - start_date).days)):
+        yield start_date + datetime.timedelta(n)
+
+
 def file_basename(path):
     """Return base file path, or last directory."""
     basename = os.path.basename(os.path.splitext(path)[0])

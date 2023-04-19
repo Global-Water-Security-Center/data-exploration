@@ -1,16 +1,21 @@
 """See `python scriptname.py --help"""
 import argparse
 import collections
-import concurrent
-import hashlib
+import multiprocessing
+import datetime
+import logging
 import os
+import sys
 
+from ecoshard import geoprocessing
+from ecoshard import taskgraph
+from osgeo import gdal
 from utils import build_monthly_ranges
-import ee
-import geemap
-import geopandas
+from utils import daterange
 import numpy
 import requests
+
+from fetch_data import fetch_data
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -21,6 +26,10 @@ logging.basicConfig(
 LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
+
+DATASET_ID = 'aer_era5_daily'
+VARIABLE_ID_LIST = ['sum_tp_mm', 'mean_t2m_c']
+MASK_NODATA = -9999
 
 ERA5_RESOLUTION_M = 11132
 ERA5_FILE_PREFIX = 'era5_monthly'
@@ -73,6 +82,23 @@ def get_monthly_precip_temp_mean(path_to_ee_poly, start_date, end_date):
             ERA5_AIR_TEMP_BAND_NAME])
 
 
+def _sum_op(*array_list):
+    LOGGER.debug(len(array_list))
+    valid_mask = array_list[0] != MASK_NODATA
+    LOGGER.debug(valid_mask.shape)
+    result = numpy.sum(array_list, axis=0)
+    LOGGER.debug(result.shape)
+    result[~valid_mask] = MASK_NODATA
+    return result
+
+
+def _mean_op(*array_list):
+    valid_mask = array_list[0] != MASK_NODATA
+    result = numpy.sum(array_list, axis=0) / len(array_list)
+    result[~valid_mask] = MASK_NODATA
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=(
         'Given a region and a time period create four tables (1) monthly '
@@ -87,28 +113,133 @@ def main():
         'start_date', help='start date for summation (YYYY-MM-DD) format')
     parser.add_argument(
         'end_date', help='start date for summation (YYYY-MM-DD) format')
-    parser.add_argument(
-        '--authenticate', action='store_true',
-        help='Pass this flag if you need to reauthenticate with GEE')
     args = parser.parse_args()
 
     monthly_date_range_list = build_monthly_ranges(
         args.start_date, args.end_date)
 
-    if args.authenticate:
-        ee.Authenticate()
-        return
-    ee.Initialize()
+    vector_basename = os.path.basename(
+        os.path.splitext(args.path_to_watersheds)[0])
+    project_basename = (
+        f'''{vector_basename}_{args.start_date}_{args.end_date}''')
+    workspace_dir = f'workspace_{project_basename}'
+    task_graph = taskgraph.TaskGraph(
+        workspace_dir, multiprocessing.cpu_count(), 15.0)
 
-    gp_poly = geopandas.read_file(args.path_to_watersheds).to_crs('EPSG:4326')
-    unique_id = hashlib.md5((
-        args.path_to_watersheds+args.start_date+args.end_date).encode(
-        'utf-8')).hexdigest()
-    local_shapefile_path = f'_local_ok_to_delete_{unique_id}.json'
-    gp_poly.to_file(local_shapefile_path)
-    gp_poly = None
+    clip_dir = os.path.join(workspace_dir, 'clip')
+    os.makedirs(clip_dir, exist_ok=True)
 
-    monthly_mean_image_list = []
+    for start_date, end_date in monthly_date_range_list:
+        month_start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+        month_end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
+
+        raster_list_set = {
+            variable_id: collections.defaultdict(list)
+            for variable_id in VARIABLE_ID_LIST}
+        for date in daterange(month_start_day, month_end_day):
+            for variable_id in VARIABLE_ID_LIST:
+                date_str = date.strftime('%Y-%m-%d')
+                clip_path = os.path.join(
+                    clip_dir, f'clip_{DATASET_ID}_{variable_id}_{date_str}')
+
+                clip_task = task_graph.add_task(
+                    func=fetch_data.fetch_and_clip,
+                    args=(
+                        DATASET_ID, variable_id, date_str,
+                        (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M),
+                        args.path_to_watersheds, clip_path),
+                    kwargs={
+                        'all_touched': True,
+                        'target_mask_value': MASK_NODATA},
+                    target_path_list=[clip_path],
+                    task_name=f'fetch and clip {clip_path}')
+                raster_list_set[variable_id]['rasters'].append((clip_path, 1))
+                raster_list_set[variable_id]['tasks'].append(clip_task)
+
+        # calculate monthly precip sum
+        month_precip_path = os.path.join(workspace_dir, (
+            f"{vector_basename}_monthly_precip_sum_"
+            f"{start_date}_{end_date}.tif"))
+        _ = task_graph.add_task(
+            func=geoprocessing.raster_calculator,
+            args=(
+                raster_list_set['sum_tp_mm']['rasters'], _sum_op,
+                month_precip_path, gdal.GDT_Float32, MASK_NODATA),
+            dependent_task_list=raster_list_set['sum_tp_mm']['tasks'],
+            target_path_list=[month_precip_path],
+            task_name=f'sum {month_precip_path}')
+
+        # calculate monthly temp mean
+        month_temp_path = os.path.join(workspace_dir, (
+            f"{vector_basename}_monthly_temp_mean_"
+            f"{start_date}_{end_date}.tif"))
+        _ = task_graph.add_task(
+            func=geoprocessing.raster_calculator,
+            args=(
+                raster_list_set['mean_t2m_c']['rasters'], _mean_op,
+                month_temp_path, gdal.GDT_Float32, MASK_NODATA),
+            dependent_task_list=raster_list_set['mean_t2m_c']['tasks'],
+            target_path_list=[month_temp_path],
+            task_name=f'sum {month_temp_path}')
+
+        # print(f'submitting {start_date} to GEE to process')
+        # monthly_mean_image_list.append(
+        #     executor.submit(
+        #         get_monthly_precip_temp_mean, local_shapefile_path,
+        #         start_date, end_date))
+        # monthly_mean_image_list = [
+        #   x.result() for x in monthly_mean_image_list]
+
+    task_graph.join()
+    task_graph.close()
+
+    # from a subfucntion:
+    # era5_hourly_collection = ee.ImageCollection("ECMWF/ERA5/HOURLY")
+    # era5_hourly_precip_collection = era5_hourly_collection.select(
+    #     ERA5_TOTAL_PRECIP_BAND_NAME)
+    # monthly_precip_sum = era5_hourly_precip_collection.filterDate(
+    #     start_date, end_date).sum()
+
+    # era5_hourly_temp_collection = era5_hourly_collection.select(
+    #     ERA5_AIR_TEMP_BAND_NAME)
+    # monthly_mean_temp = era5_hourly_temp_collection.filterDate(
+    #     start_date, end_date).mean()
+
+    # def clip_and_mean(image):
+    #     clipped_image = ee.Image(image).clip(ee_poly).mask(
+    #         poly_mask)
+    #     reduced_dict = clipped_image.reduceRegion(**{
+    #             'geometry': ee_poly,
+    #             'scale': ERA5_RESOLUTION_M,
+    #             'reducer': ee.Reducer.mean()
+    #         })
+    #     return clipped_image, reduced_dict
+
+    # # reduce the images down to a single value per ee_poly via mean
+    # (clipped_reduced_monthly_precip_image,
+    #  clipped_reduced_monthly_precip_mean) = clip_and_mean(monthly_precip_sum)
+    # (clipped_reduced_monthly_temp_image,
+    #  clipped_reduced_monthly_temp_mean) = clip_and_mean(monthly_mean_temp)
+
+    # return (
+    #     clipped_reduced_monthly_precip_image,
+    #     clipped_reduced_monthly_temp_image,
+    #     clipped_reduced_monthly_precip_mean.getInfo()[
+    #         ERA5_TOTAL_PRECIP_BAND_NAME],
+    #     clipped_reduced_monthly_temp_mean.getInfo()[
+    #         ERA5_AIR_TEMP_BAND_NAME])
+
+
+
+
+    ###############################
+
+
+
+
+
+
+
     with concurrent.futures.ThreadPoolExecutor() as executor:
         for start_date, end_date in monthly_date_range_list:
             print(f'submitting {start_date} to GEE to process')
