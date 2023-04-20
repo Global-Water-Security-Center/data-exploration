@@ -3,6 +3,7 @@ import argparse
 import collections
 import multiprocessing
 import datetime
+import glob
 import logging
 import os
 import sys
@@ -13,7 +14,6 @@ from osgeo import gdal
 from utils import build_monthly_ranges
 from utils import daterange
 import numpy
-import requests
 
 from fetch_data import fetch_data
 
@@ -136,6 +136,12 @@ def main():
 
     clip_dir = os.path.join(workspace_dir, 'clip')
     os.makedirs(clip_dir, exist_ok=True)
+    monthly_precip_dir = os.path.join(
+        workspace_dir, 'monthly_precip_rasters')
+    os.makedirs(monthly_precip_dir, exist_ok=True)
+    monthly_temp_dir = os.path.join(
+        workspace_dir, 'monthly_temp_rasters')
+    os.makedirs(monthly_temp_dir, exist_ok=True)
 
     for start_date, end_date in monthly_date_range_list:
         month_start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
@@ -166,9 +172,6 @@ def main():
                 raster_list_set[variable_id]['tasks'].append(clip_task)
 
         # calculate monthly precip sum
-        monthly_precip_dir = os.path.join(
-            workspace_dir, 'monthly_precip_rasters')
-        os.makedirs(monthly_precip_dir, exist_ok=True)
         month_precip_path = os.path.join(monthly_precip_dir, (
             f"{vector_basename}_monthly_precip_sum_"
             f"{start_date}_{end_date}.tif"))
@@ -190,10 +193,6 @@ def main():
             task_name=f'mean of {month_precip_path}')
 
         # calculate monthly temp mean
-        monthly_temp_dir = os.path.join(
-            workspace_dir, 'monthly_temp_rasters')
-        os.makedirs(monthly_temp_dir, exist_ok=True)
-
         month_temp_path = os.path.join(monthly_temp_dir, (
             f"{vector_basename}_monthly_temp_mean_"
             f"{start_date}_{end_date}.tif"))
@@ -219,7 +218,6 @@ def main():
             (year, month, precip_mean_task, temp_mean_task))
 
     task_graph.join()
-    task_graph.close()
 
     # create table that lists precip and temp means per month
     target_base = (
@@ -227,6 +225,7 @@ def main():
         f"{args.start_date}_{args.end_date}")
     target_table_path = os.path.join(workspace_dir, f"{target_base}.csv")
 
+    # report precip and temp cronologically by month
     precip_by_year = collections.defaultdict(list)
     precip_by_month = collections.defaultdict(list)
     temp_by_month = collections.defaultdict(list)
@@ -257,9 +256,6 @@ def main():
                 monthly_normal_table.write(
                     f'{month_id},{numpy.average(data_list)}\n')
 
-    # generate yearly sum table for precip
-
-    # get annual mean of precip
     target_base = (
         f"{vector_basename}_annual_precip_mean_"
         f"{args.start_date}_{args.end_date}")
@@ -281,31 +277,52 @@ def main():
             f'total annual mean (adjusted to 12 months),'
             f'{total_sum/total_months*12}\n')
 
-
     # generate total precip sum raster
+    monthly_precip_dir
+    monthly_temp_dir
+    precip_raster_path_list = [
+        (path, 1) for path in glob.glob(os.path.join(
+            monthly_precip_dir, '*.tif'))]
+    temp_raster_path_list = [
+        (path, 1) for path in glob.glob(os.path.join(
+            monthly_temp_dir, '*.tif'))]
+
+    total_precip_path = os.path.join(
+        workspace_dir,
+        (f"{vector_basename}_precip_mm_sum_"
+         f"{args.start_date}_{args.end_date}.tif"))
+
+    total_temp_mean_path = os.path.join(
+        workspace_dir,
+        (f"{vector_basename}_temp_C_monthly_mean_"
+         f"{args.start_date}_{args.end_date}.tif"))
+
+    _ = task_graph.add_task(
+        func=geoprocessing.raster_calculator,
+        args=(
+            precip_raster_path_list, _sum_op,
+            total_precip_path, gdal.GDT_Float32, MASK_NODATA),
+        target_path_list=[total_precip_path],
+        task_name=f'generate total precip {total_precip_path}')
+
+    # calculate monthly temp mean
+    _ = task_graph.add_task(
+        func=geoprocessing.raster_calculator,
+        args=(
+            temp_raster_path_list, _mean_op,
+            total_temp_mean_path, gdal.GDT_Float32, MASK_NODATA),
+        dependent_task_list=raster_list_set['mean_t2m_c']['tasks'],
+        target_path_list=[total_temp_mean_path],
+        task_name=f'man total temp {total_temp_mean_path}')
+
+    task_graph.join()
+    task_graph.close()
+
 
     # generate total mean temp raster
 
     LOGGER.info(f'********** ALL DONE -> results are in {workspace_dir}')
 
-    # with open(target_table_path, 'w') as table_file:
-    #     table_file.write('date,' + ','.join(CSV_BANDS_TO_DISPLAY) + '\n')
-    #     for (precip_image, temp_image, precip_mean, temp_mean), date in zip(
-    #             monthly_mean_image_list, monthly_date_range_list):
-    #         precip_image_list.append(precip_image)
-    #         temp_image_list.append(temp_image)
-    #         print(f'...processing {date}')
-    #         year = date[0][:4]
-    #         month = date[0][5:7]
-    #         converted_precip, converted_temp = [
-    #             _conv(x) for x, _conv in zip(
-    #                 (precip_mean, temp_mean),
-    #                 CSV_BANDS_SCALAR_CONVERSION)]
-    #         precip_by_year[year].append(converted_precip)
-    #         precip_by_month[month].append(converted_precip)
-    #         temp_by_month[month].append(converted_temp)
-    #         table_file.write(
-    #             f'{date[0][:7]},{converted_precip},{converted_temp}\n')
 
     # ee_poly = geemap.geojson_to_ee(local_shapefile_path)
     # poly_mask = ee.Image.constant(1).clip(ee_poly).mask()
