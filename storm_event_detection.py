@@ -32,7 +32,7 @@ logging.getLogger('fetch_data').setLevel(logging.INFO)
 ERA5_RESOLUTION_M = 27830
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
 
-DATASET_ID = 'aer_era5_daily'
+DATASET_ID = 'era5_daily'
 VARIABLE_ID = 'sum_tp_mm'
 
 

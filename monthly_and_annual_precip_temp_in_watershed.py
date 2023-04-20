@@ -27,7 +27,7 @@ LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
 
-DATASET_ID = 'aer_era5_daily'
+DATASET_ID = 'era5_daily'
 VARIABLE_ID_LIST = ['sum_tp_mm', 'mean_t2m_c']
 MASK_NODATA = -9999
 
