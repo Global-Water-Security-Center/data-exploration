@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 
+from osgeo import osr
 from ecoshard import geoprocessing
 from ecoshard import taskgraph
 from osgeo import gdal
@@ -31,7 +32,8 @@ DATASET_ID = 'era5_daily'
 VARIABLE_ID_LIST = ['sum_tp_mm', 'mean_t2m_c']
 MASK_NODATA = -9999
 
-ERA5_RESOLUTION_M = 11132
+ERA5_RESOLUTION_M = 27830
+ERA5_RESOLUTION_DEG = 0.25
 CSV_BANDS_TO_DISPLAY = ['mean_precip (mm)', 'mean_2m_air_temp (C)']
 
 
@@ -109,6 +111,16 @@ def main():
                 date_str = date.strftime('%Y-%m-%d')
                 clip_path = os.path.join(
                     clip_dir, f'clip_{DATASET_ID}_{variable_id}_{date_str}')
+
+                vector_info = geoprocessing.get_vector_info(
+                    args.path_to_watersheds)
+                vector_projection = osr.SpatialReference()
+                vector_projection.ImportFromWkt(vector_info['projection_wkt'])
+                if vector_projection.IsProjected():
+                    clip_cell_size = (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M)
+                else:
+                    clip_cell_size = (ERA5_RESOLUTION_DEG, -ERA5_RESOLUTION_DEG)
+
 
                 clip_task = task_graph.add_task(
                     func=fetch_data.fetch_and_clip,
