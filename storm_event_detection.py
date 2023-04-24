@@ -9,6 +9,7 @@ import sys
 import time
 
 from osgeo import gdal
+from osgeo import osr
 from utils import build_monthly_ranges
 from utils import daterange
 from ecoshard import geoprocessing
@@ -17,7 +18,6 @@ import numpy
 import requests
 
 from fetch_data import fetch_data
-
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -30,6 +30,7 @@ LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
 
 ERA5_RESOLUTION_M = 27830
+ERA5_RESOLUTION_DEG = 0.25
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
 
 DATASET_ID = 'era5_daily'
@@ -120,11 +121,18 @@ def main():
             clip_path = os.path.join(
                 clip_dir, f'clip_{DATASET_ID}_{VARIABLE_ID}_{date_str}')
 
+            vector_info = geoprocessing.get_vector_info(args.path_to_watersheds)
+            vector_projection = osr.SpatialReference()
+            vector_projection.ImportFromWkt(vector_info['projection_wkt'])
+            if vector_projection.IsProjected():
+                clip_cell_size = (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M)
+            else:
+                clip_cell_size = (ERA5_RESOLUTION_DEG, -ERA5_RESOLUTION_DEG)
+
             fetch_and_clip_task = task_graph.add_task(
                 func=fetch_data.fetch_and_clip,
                 args=(
-                    DATASET_ID, VARIABLE_ID, date_str,
-                    (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M),
+                    DATASET_ID, VARIABLE_ID, date_str, clip_cell_size,
                     args.path_to_watersheds, clip_path),
                 kwargs={'all_touched': True, 'target_mask_value': mask_nodata},
                 target_path_list=[clip_path],
