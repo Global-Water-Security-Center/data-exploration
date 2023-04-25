@@ -106,6 +106,7 @@ def main():
         raster_list_set = {
             variable_id: collections.defaultdict(list)
             for variable_id in VARIABLE_ID_LIST}
+        existance_set = {}
         for date in daterange(month_start_day, month_end_day):
             for variable_id in VARIABLE_ID_LIST:
                 date_str = date.strftime('%Y-%m-%d')
@@ -121,26 +122,52 @@ def main():
                 else:
                     clip_cell_size = (ERA5_RESOLUTION_DEG, -ERA5_RESOLUTION_DEG)
 
+                fetch_and_clip_args = (
+                    DATASET_ID, variable_id, date_str,
+                    clip_cell_size,
+                    args.path_to_watersheds, clip_path)
 
-                clip_task = task_graph.add_task(
-                    func=fetch_data.fetch_and_clip,
-                    args=(
-                        DATASET_ID, variable_id, date_str,
-                        (ERA5_RESOLUTION_M, -ERA5_RESOLUTION_M),
-                        args.path_to_watersheds, clip_path),
-                    kwargs={
-                        'all_touched': True,
-                        'target_mask_value': MASK_NODATA},
-                    target_path_list=[clip_path],
-                    task_name=f'fetch and clip {clip_path}')
-                raster_list_set[variable_id]['rasters'].append((clip_path, 1))
-                raster_list_set[variable_id]['tasks'].append(clip_task)
+                exists_task = task_graph.add_task(
+                    func=fetch_data.file_exists,
+                    args=(DATASET_ID, variable_id, date_str),
+                    store_result=True,
+                    transient_run=True,
+                    task_name=(
+                        f'test if {DATASET_ID}/{variable_id}/{date_str} '
+                        'exists'))
+                existance_set[f'{DATASET_ID}/{variable_id}/{date_str}'] = (
+                    exists_task, variable_id, (fetch_and_clip_args, clip_path))
+
+        missing_file_list = [
+            variable_str
+            for variable_str, (_, exist_task, _) in existance_set.items()
+            if not exists_task.get()]
+        if missing_file_list:
+            task_graph.join()
+            task_graph.close()
+            raise RuntimeError(
+                'The following data cannot be found in the cloud: ' +
+                ', '.join(missing_file_list))
+
+        for _, variable_id, (fetch_args, clip_path) in existance_set.values():
+            LOGGER.info(f'clip path: {clip_path}')
+            clip_task = task_graph.add_task(
+                func=fetch_data.fetch_and_clip,
+                args=fetch_args,
+                kwargs={
+                    'all_touched': True,
+                    'target_mask_value': MASK_NODATA},
+                target_path_list=[clip_path],
+                task_name=f'fetch and clip {clip_path}')
+            raster_list_set[variable_id]['rasters'].append((clip_path, 1))
+            raster_list_set[variable_id]['tasks'].append(clip_task)
 
         # calculate monthly precip sum
         month_precip_path = os.path.join(monthly_precip_dir, (
             f"{vector_basename}_monthly_precip_sum_"
             f"{start_date}_{end_date}.tif"))
 
+        LOGGER.info(raster_list_set['sum_tp_mm']['rasters'])
         month_precip_task = task_graph.add_task(
             func=geoprocessing.raster_calculator,
             args=(

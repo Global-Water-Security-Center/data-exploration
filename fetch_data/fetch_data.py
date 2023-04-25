@@ -6,7 +6,6 @@ import logging
 import os
 
 from ecoshard import geoprocessing
-from retrying import retry
 from sqlalchemy import create_engine
 from sqlalchemy import Integer
 from sqlalchemy import Text
@@ -15,6 +14,7 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import and_
 import boto3
+import botocore.exceptions
 import sqlalchemy
 
 LOGGER = logging.getLogger(__name__)
@@ -51,6 +51,68 @@ class File(Base):
 # create the table if it doesn't exist
 Base.metadata.create_all(DB_ENGINE)
 
+GLOBAL_CONFIG = configparser.ConfigParser(allow_no_value=True)
+GLOBAL_CONFIG.read(GLOBAL_INI_PATH)
+GLOBAL_CONFIG = GLOBAL_CONFIG['defaults']
+
+
+def _construct_filepath(dataset_id, variable_id, date_str):
+    """Form consisten local cache path for given file parameters.
+
+    Returns: local path, bucket path to file if it exists on the file system.
+    """
+    date_format = GLOBAL_CONFIG[f'{dataset_id}_date_format']
+    formatted_date = datetime.datetime.strptime(
+        date_str, date_format).strftime(date_format)
+    bucket_path = GLOBAL_CONFIG[f'{dataset_id}_file_format'].format(
+        variable=variable_id, date=formatted_date)
+    target_path = os.path.join(
+        os.path.dirname(__file__), GLOBAL_CONFIG['cache_dir'], bucket_path)
+    return target_path, bucket_path
+
+
+def _create_s3_bucket_obj(dataset_id):
+    """Create S3 object given dataset_id."""
+    GLOBAL_CONFIG = configparser.ConfigParser(allow_no_value=True)
+    GLOBAL_CONFIG.read(GLOBAL_INI_PATH)
+    GLOBAL_CONFIG = GLOBAL_CONFIG['defaults']
+    access_key_path = os.path.join(
+        os.path.dirname(__file__),
+        GLOBAL_CONFIG[f'{dataset_id}_access_key'])
+    if not os.path.exists(access_key_path):
+        raise ValueError(
+            f'expected a keyfile to access the S3 bucket at {access_key_path} '
+            'but not found')
+    reader = csv.DictReader(open(access_key_path))
+    bucket_access_dict = next(reader)
+    s3 = boto3.resource(
+        's3',
+        endpoint_url=GLOBAL_CONFIG[f'{dataset_id}_base_uri'],
+        aws_access_key_id=bucket_access_dict['Access Key Id'],
+        aws_secret_access_key=bucket_access_dict['Secret Access Key'],
+    )
+    dataset_bucket = s3.Bucket(GLOBAL_CONFIG[f'{dataset_id}_bucket_id'])
+    return dataset_bucket
+
+
+def file_exists(dataset_id, variable_id, date_str):
+    """Return true if file exists.
+
+    Args:
+        dataset_id (str): dataset defined by config
+        variable_id (str): variable id that's consistent with dataset
+        date_str (str): date to query that's consistent with the dataset
+
+    Return: true if file exists in bucket."""
+    local_path, bucket_path = _construct_filepath(
+        dataset_id, variable_id, date_str)
+    LOGGER.info(f'checking if {dataset_id}/{bucket_path} exists')
+    if os.path.exists(local_path):
+        return True
+    dataset_bucket = _create_s3_bucket_obj(dataset_id)
+    objects = list(dataset_bucket.objects.filter(Prefix=bucket_path))
+    return len(objects) == 1
+
 
 def fetch_and_clip(
         dataset_id, variable_id, date_str, pixel_size, clip_vector_path,
@@ -80,7 +142,6 @@ def fetch_and_clip(
             'target_mask_value': target_mask_value})
 
 
-@retry(wait_exponential_multiplier=50, wait_exponential_max=10000, stop_max_attempt_number=7)
 def fetch_file(dataset_id, variable_id, date_str):
     """Fetch a file from remote data store to local target path.
 
@@ -92,26 +153,9 @@ def fetch_file(dataset_id, variable_id, date_str):
     Returns:
         (str) path to local downloaded file.
     """
-    global_config = configparser.ConfigParser(allow_no_value=True)
-    global_config.read(GLOBAL_INI_PATH)
-    global_config = global_config['defaults']
-    access_key_path = os.path.join(
-        os.path.dirname(__file__),
-        global_config[f'{dataset_id}_access_key'])
-    if not os.path.exists(access_key_path):
-        raise ValueError(
-            f'expected a keyfile to access the S3 bucket at {access_key_path} '
-            'but not found')
-    reader = csv.DictReader(open(access_key_path))
-    bucket_access_dict = next(reader)
-    s3 = boto3.resource(
-        's3',
-        endpoint_url=global_config[f'{dataset_id}_base_uri'],
-        aws_access_key_id=bucket_access_dict['Access Key Id'],
-        aws_secret_access_key=bucket_access_dict['Secret Access Key'],
-    )
+    dataset_bucket = _create_s3_bucket_obj(dataset_id)
 
-    date_format = global_config[f'{dataset_id}_date_format']
+    date_format = GLOBAL_CONFIG[f'{dataset_id}_date_format']
     formatted_date = datetime.datetime.strptime(
         date_str, date_format).strftime(date_format)
 
@@ -126,17 +170,22 @@ def fetch_file(dataset_id, variable_id, date_str):
         LOGGER.info(f'{local_path} is locally cached!')
         return local_path
 
-    filename = global_config[f'{dataset_id}_file_format'].format(
-        variable=variable_id, date=formatted_date)
-    target_path = os.path.join(
-        os.path.dirname(__file__), global_config['cache_dir'], filename)
+    target_path, bucket_path = _construct_filepath(dataset_id, variable_id, date_str)
+
     if not os.path.exists(target_path):
-        dataset_bucket = s3.Bucket(global_config[f'{dataset_id}_bucket_id'])
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        LOGGER.info(f'downloading {filename}')
-        dataset_bucket.download_file(filename, target_path)
+        LOGGER.info(f'downloading {bucket_path}')
+        try:
+            dataset_bucket.download_file(bucket_path, target_path)
+        except botocore.exceptions.ClientError:
+            message = (
+                f'file not found for {bucket_path}')
+            LOGGER.error(message)
+            raise FileNotFoundError(message)
     else:
-        LOGGER.warning(f'{target_path} exists but no entry in database')
+        LOGGER.warning(
+            f'{target_path} exists but no entry in database, either delete '
+            f'{target_path} and restart, or figure out what\'s going on')
 
     with Session(DB_ENGINE) as session:
         file_entry = File(
