@@ -19,7 +19,8 @@ import sqlalchemy
 
 LOGGER = logging.getLogger(__name__)
 
-DB_FILE = os.path.join(os.path.dirname(__file__), 'file_registry.sqlite')
+DB_FILE = os.path.join(
+    os.path.dirname(__file__), 'local_file_registry.sqlite')
 DB_ENGINE = create_engine(f"sqlite:///{DB_FILE}", echo=False)
 
 GLOBAL_INI_PATH = os.path.join(os.path.dirname(__file__), 'defaults.ini')
@@ -38,6 +39,7 @@ class File(Base):
     variable_id = mapped_column(Text, index=True)
     date_str = mapped_column(Text, index=True)
     file_path = mapped_column(Text, index=True)
+    remote_path = mapped_column(Text, index=True)
 
     def __repr__(self) -> str:
         return (
@@ -45,7 +47,7 @@ class File(Base):
             f'dataset_id={self.dataset_id!r}, '
             f'variable_id={self.variable_id!r}, '
             f'date_str={self.date_str!r}, '
-            f'date_str={self.file_path!r}')
+            f'file_path={self.file_path!r}')
 
 
 # create the table if it doesn't exist
@@ -53,7 +55,6 @@ Base.metadata.create_all(DB_ENGINE)
 
 GLOBAL_CONFIG = configparser.ConfigParser(allow_no_value=True)
 GLOBAL_CONFIG.read(GLOBAL_INI_PATH)
-GLOBAL_CONFIG = GLOBAL_CONFIG['defaults']
 
 
 def _construct_filepath(dataset_id, variable_id, date_str):
@@ -61,13 +62,14 @@ def _construct_filepath(dataset_id, variable_id, date_str):
 
     Returns: local path, bucket path to file if it exists on the file system.
     """
-    date_format = GLOBAL_CONFIG[f'{dataset_id}_date_format']
+    date_format = GLOBAL_CONFIG[dataset_id]['date_format']
     formatted_date = datetime.datetime.strptime(
         date_str, date_format).strftime(date_format)
-    bucket_path = GLOBAL_CONFIG[f'{dataset_id}_file_format'].format(
+    bucket_path = GLOBAL_CONFIG[dataset_id]['file_format'].format(
         variable=variable_id, date=formatted_date)
     target_path = os.path.join(
-        os.path.dirname(__file__), GLOBAL_CONFIG['cache_dir'], bucket_path)
+        os.path.dirname(__file__), GLOBAL_CONFIG[dataset_id]['cache_dir'],
+        bucket_path)
     return target_path, bucket_path
 
 
@@ -75,10 +77,9 @@ def _create_s3_bucket_obj(dataset_id):
     """Create S3 object given dataset_id."""
     GLOBAL_CONFIG = configparser.ConfigParser(allow_no_value=True)
     GLOBAL_CONFIG.read(GLOBAL_INI_PATH)
-    GLOBAL_CONFIG = GLOBAL_CONFIG['defaults']
     access_key_path = os.path.join(
         os.path.dirname(__file__),
-        GLOBAL_CONFIG[f'{dataset_id}_access_key'])
+        GLOBAL_CONFIG[dataset_id]['access_key'])
     if not os.path.exists(access_key_path):
         raise ValueError(
             f'expected a keyfile to access the S3 bucket at {access_key_path} '
@@ -87,12 +88,22 @@ def _create_s3_bucket_obj(dataset_id):
     bucket_access_dict = next(reader)
     s3 = boto3.resource(
         's3',
-        endpoint_url=GLOBAL_CONFIG[f'{dataset_id}_base_uri'],
+        endpoint_url=GLOBAL_CONFIG[dataset_id]['base_uri'],
         aws_access_key_id=bucket_access_dict['Access Key Id'],
         aws_secret_access_key=bucket_access_dict['Secret Access Key'],
     )
-    dataset_bucket = s3.Bucket(GLOBAL_CONFIG[f'{dataset_id}_bucket_id'])
+    dataset_bucket = s3.Bucket(GLOBAL_CONFIG[dataset_id]['bucket_id'])
     return dataset_bucket
+
+
+def fetch_remote_dataset(dataset_id):
+    """Fetch a copy of the remote file database."""
+    local_config = GLOBAL_CONFIG[dataset_id]
+    database_path = os.path.join(
+        local_config['database_dir'], local_config['database'])
+    os.makedirs(os.path.dirname(database_path))
+
+    DATABASE_DIR
 
 
 def file_exists(dataset_id, variable_id, date_str):
@@ -142,8 +153,8 @@ def fetch_and_clip(
             'target_mask_value': target_mask_value})
 
 
-def fetch_file(dataset_id, variable_id, date_str):
-    """Fetch a file from remote data store to local target path.
+def put_file(dataset_id, variable_id, date_str, local_path):
+    """Put a local file to remote bucket.
 
     Args:
         dataset_id (str): dataset defined by config
@@ -153,25 +164,24 @@ def fetch_file(dataset_id, variable_id, date_str):
     Returns:
         (str) path to local downloaded file.
     """
-    dataset_bucket = _create_s3_bucket_obj(dataset_id)
+    pass
 
-    date_format = GLOBAL_CONFIG[f'{dataset_id}_date_format']
-    formatted_date = datetime.datetime.strptime(
-        date_str, date_format).strftime(date_format)
 
-    with Session(DB_ENGINE) as session:
-        stmt = sqlalchemy.select(File).where(and_(
-            File.dataset_id == dataset_id,
-            File.variable_id == variable_id,
-            File.date_str == formatted_date))
-        result = session.execute(stmt).first()
-    if result is not None and os.path.exists(result[0].file_path):
-        local_path = result[0].file_path
-        LOGGER.info(f'{local_path} is locally cached!')
-        return local_path
+def _download_file_from_s3(
+        bucket_id, bucket_path, target_path, overwrite_existing=False):
+    """Download file from s3 to local.
 
-    target_path, bucket_path = _construct_filepath(dataset_id, variable_id, date_str)
+    Args:
+        bucket_id (str): name of bucket
+        bucket_path (str): path of file on bucket
+        target_path (str): desired local target path.
+        overwrite_existing (bool): If true, overwrites existing files, if
+            false, raises a ValueError if file already exists.
 
+    Returns:
+        None
+    """
+    dataset_bucket = _create_s3_bucket_obj(bucket_id)
     if not os.path.exists(target_path):
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         LOGGER.info(f'downloading {bucket_path}')
@@ -186,6 +196,39 @@ def fetch_file(dataset_id, variable_id, date_str):
         LOGGER.warning(
             f'{target_path} exists but no entry in database, either delete '
             f'{target_path} and restart, or figure out what\'s going on')
+
+
+def fetch_file(dataset_id, variable_id, date_str):
+    """Fetch a file from remote data store to local target path.
+
+    Args:
+        dataset_id (str): dataset defined by config
+        variable_id (str): variable id that's consistent with dataset
+        date_str (str): date to query that's consistent with the dataset
+
+    Returns:
+        (str) path to local downloaded file.
+    """
+
+    date_format = GLOBAL_CONFIG[dataset_id]['date_format']
+    formatted_date = datetime.datetime.strptime(
+        date_str, date_format).strftime(date_format)
+
+    with Session(DB_ENGINE) as session:
+        stmt = sqlalchemy.select(File).where(and_(
+            File.dataset_id == dataset_id,
+            File.variable_id == variable_id,
+            File.date_str == formatted_date))
+        result = session.execute(stmt).first()
+    if result is not None and os.path.exists(result[0].file_path):
+        local_path = result[0].file_path
+        LOGGER.info(f'{local_path} is locally cached!')
+        return local_path
+
+    target_path, bucket_path = _construct_filepath(
+        dataset_id, variable_id, date_str)
+
+    _download_file_from_s3(dataset_id, bucket_path, target_path)
 
     with Session(DB_ENGINE) as session:
         file_entry = File(
