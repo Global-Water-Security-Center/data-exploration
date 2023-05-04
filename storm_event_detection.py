@@ -17,7 +17,7 @@ from ecoshard import taskgraph
 import numpy
 import requests
 
-from fetch_data import fetch_data
+from ecoshard import fetch_data
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -27,7 +27,7 @@ logging.basicConfig(
         ' [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
-logging.getLogger('fetch_data').setLevel(logging.INFO)
+logging.getLogger('ecoshard.fetch_data').setLevel(logging.INFO)
 
 ERA5_RESOLUTION_M = 27830
 ERA5_RESOLUTION_DEG = 0.25

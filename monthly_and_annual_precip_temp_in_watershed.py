@@ -26,7 +26,7 @@ logging.basicConfig(
         ' [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
-logging.getLogger('fetch_data').setLevel(logging.INFO)
+logging.getLogger('ecoshard.fetch_data').setLevel(logging.INFO)
 
 DATASET_ID = 'era5_daily'
 VARIABLE_ID_LIST = ['sum_tp_mm', 'mean_t2m_c']
@@ -122,14 +122,19 @@ def main():
                 else:
                     clip_cell_size = (ERA5_RESOLUTION_DEG, -ERA5_RESOLUTION_DEG)
 
+                dataset_args = {
+                    'date': date_str,
+                    'variable': variable_id
+                }
+
                 fetch_and_clip_args = (
-                    DATASET_ID, variable_id, date_str,
+                    DATASET_ID, dataset_args,
                     clip_cell_size,
                     args.path_to_watersheds, clip_path)
 
                 exists_task = task_graph.add_task(
                     func=fetch_data.file_exists,
-                    args=(DATASET_ID, variable_id, date_str),
+                    args=(DATASET_ID, dataset_args),
                     store_result=True,
                     transient_run=True,
                     task_name=(

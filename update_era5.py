@@ -34,7 +34,7 @@ def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
             date strings in the netcat variables.
 
     Returns:
-        None
+        list of (file, variable_id) tuples created by this process
     """
     LOGGER.info(f'processing {netcat_path}')
     dataset = xarray.open_dataset(netcat_path)
@@ -50,10 +50,11 @@ def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
     transform = Affine.translation(
         *[a[0] for a in coord_list]) * Affine.scale(*res_list)
 
-    for variable_name, data_array in dataset.items():
+    target_path_variable_id_list = []
+    for variable_id, data_array in dataset.items():
         target_path = target_path_pattern.format(**{
             'date': date_str,
-            'variable': variable_name
+            'variable': variable_id
             })
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         with rasterio.open(
@@ -72,6 +73,8 @@ def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
                 'COMPRESS': 'LZW',
                 'PREDICTOR': 2}) as new_dataset:
             new_dataset.write(data_array)
+        target_path_variable_id_list.append((target_path, variable_id))
+    return target_path_variable_id_list
 
 
 def main():
@@ -101,8 +104,13 @@ def main():
             netcat_path = fetch_data.fetch_file(
                 'aer_era5_netcat_daily', {'date': date_str})
             LOGGER.info(f'downloaded to {netcat_path}')
-            process_era5_netcat_to_geotiff(
+            geotiff_path_variable_id_list = process_era5_netcat_to_geotiff(
                 netcat_path, date_str, target_path_pattern)
+            for geotiff_path, variable_id in geotiff_path_variable_id_list:
+                remote_path = fetch_data.put_file(geotiff_path, 'era5_daily', {
+                    'date': date_str,
+                    'variable': variable_id})
+                LOGGER.info(f'uploaded to {remote_path}')
         except FileNotFoundError:
             LOGGER.error(f'No file found for {date_str}, skipping')
 
