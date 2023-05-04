@@ -32,6 +32,7 @@ logging.getLogger('ecoshard.fetch_data').setLevel(logging.INFO)
 ERA5_RESOLUTION_M = 27830
 ERA5_RESOLUTION_DEG = 0.25
 ERA5_TOTAL_PRECIP_BAND_NAME = 'total_precipitation'
+MASK_NODATA = -9999
 
 DATASET_ID = 'era5_daily'
 VARIABLE_ID = 'sum_tp_mm'
@@ -108,20 +109,20 @@ def main():
 
     clip_dir = os.path.join(workspace_dir, 'clip')
     os.makedirs(clip_dir, exist_ok=True)
-    mask_nodata = -1
+
     monthly_precip_path_list = []
     for start_date, end_date in monthly_date_range_list:
-        start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-        end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
+        month_start_day = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+        month_end_day = datetime.datetime.strptime(end_date, '%Y-%m-%d')
 
-        clip_path_band_list = []
-        clip_task_list = []
-        for date in daterange(start_day, end_day):
+        existance_set = {}
+        for date in daterange(month_start_day, month_end_day):
             date_str = date.strftime('%Y-%m-%d')
             clip_path = os.path.join(
                 clip_dir, f'clip_{DATASET_ID}_{VARIABLE_ID}_{date_str}')
 
-            vector_info = geoprocessing.get_vector_info(args.path_to_watersheds)
+            vector_info = geoprocessing.get_vector_info(
+                args.path_to_watersheds)
             vector_projection = osr.SpatialReference()
             vector_projection.ImportFromWkt(vector_info['projection_wkt'])
             if vector_projection.IsProjected():
@@ -129,16 +130,52 @@ def main():
             else:
                 clip_cell_size = (ERA5_RESOLUTION_DEG, -ERA5_RESOLUTION_DEG)
 
-            fetch_and_clip_task = task_graph.add_task(
+            dataset_args = {
+                'date': date_str,
+                'variable': VARIABLE_ID
+            }
+
+            fetch_and_clip_args = (
+                DATASET_ID, dataset_args,
+                clip_cell_size,
+                args.path_to_watersheds, clip_path)
+
+            exists_task = task_graph.add_task(
+                func=fetch_data.file_exists,
+                args=(DATASET_ID, dataset_args),
+                store_result=True,
+                transient_run=True,
+                task_name=(
+                    f'test if {DATASET_ID}/{VARIABLE_ID}/{date_str} '
+                    'exists'))
+            existance_set[f'{DATASET_ID}/{VARIABLE_ID}/{date_str}'] = (
+                exists_task, VARIABLE_ID, (fetch_and_clip_args, clip_path))
+
+        missing_file_list = [
+            variable_str
+            for variable_str, (_, exist_task, _) in existance_set.items()
+            if not exists_task.get()]
+        if missing_file_list:
+            task_graph.join()
+            task_graph.close()
+            raise RuntimeError(
+                'The following data cannot be found in the cloud: ' +
+                ', '.join(missing_file_list))
+
+        clip_path_band_list = []
+        clip_task_list = []
+        for _, variable_id, (fetch_args, clip_path) in existance_set.values():
+            LOGGER.info(f'clip path: {clip_path}')
+            clip_task = task_graph.add_task(
                 func=fetch_data.fetch_and_clip,
-                args=(
-                    DATASET_ID, VARIABLE_ID, date_str, clip_cell_size,
-                    args.path_to_watersheds, clip_path),
-                kwargs={'all_touched': True, 'target_mask_value': mask_nodata},
+                args=fetch_args,
+                kwargs={
+                    'all_touched': True,
+                    'target_mask_value': MASK_NODATA},
                 target_path_list=[clip_path],
                 task_name=f'fetch and clip {clip_path}')
             clip_path_band_list.append((clip_path, 1))
-            clip_task_list.append(fetch_and_clip_task)
+            clip_task_list.append(clip_task)
 
         monthly_precip_path = os.path.join(
             workspace_dir, f'''{vector_basename}_48hr_avg_precip_events_{
@@ -146,7 +183,7 @@ def main():
         monthly_precip_task = task_graph.add_task(
             func=_process_month,
             args=(
-                clip_path_band_list, mask_nodata, args.rain_event_threshold,
+                clip_path_band_list, MASK_NODATA, args.rain_event_threshold,
                 monthly_precip_path),
             target_path_list=[monthly_precip_path],
             dependent_task_list=clip_task_list,
@@ -186,7 +223,7 @@ def main():
     shutil.copyfile(raster_path, precip_over_all_time_path)
     r = gdal.OpenEx(precip_over_all_time_path, gdal.OF_RASTER | gdal.GA_Update)
     b = r.GetRasterBand(1)
-    running_sum[~valid_mask] = mask_nodata
+    running_sum[~valid_mask] = MASK_NODATA
     b.WriteArray(running_sum)
     b = None
     r = None
