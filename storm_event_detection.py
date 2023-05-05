@@ -88,10 +88,6 @@ def main():
     parser.add_argument(
         '--date_range', default=[], action='append', required=True, nargs=2,
         help='Pass a pair of start/end dates in the (YYYY-MM-DD) format')
-    # parser.add_argument(
-    #     'start_date', help='start date for summation (YYYY-MM-DD) format')
-    # parser.add_argument(
-    #     'end_date', help='start date for summation (YYYY-MM-DD) format')
     parser.add_argument(
         '--rain_event_threshold', default=0.1, type=float,
         help='amount of rain (mm) in a day to count as a rain event')
@@ -105,8 +101,8 @@ def main():
         result_workspace_path_list.append(result_workspace_path)
 
     LOGGER.info(
-        f'******** ALL DONE ({time.time()-start_time:.2f}s), results in:\n\t* ' +
-        '\n\t* '.join(result_workspace_path_list))
+        f'******** ALL DONE ({time.time()-start_time:.2f}s), results '
+        'in:\n\t* ' + '\n\t* '.join(result_workspace_path_list))
 
 
 def process_date_range(
