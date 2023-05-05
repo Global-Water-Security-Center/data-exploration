@@ -112,7 +112,7 @@ def process_date_range(
     vector_basename = os.path.basename(
         os.path.splitext(path_to_watersheds)[0])
     project_basename = (
-        f'''{vector_basename}_{start_date}_{end_date}''')
+        f'''storm_event_detection_{vector_basename}_{start_date}_{end_date}''')
     workspace_dir = f'workspace_{project_basename}'
 
     task_graph = taskgraph.TaskGraph(

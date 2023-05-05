@@ -82,8 +82,7 @@ def main():
     result_workspace_path_list = []
     for start_date, end_date in args.date_range:
         result_workspace_path = process_date_range(
-            args.path_to_watersheds, start_date, end_date,
-            args.rain_event_threshold)
+            args.path_to_watersheds, start_date, end_date)
         result_workspace_path_list.append(result_workspace_path)
 
     LOGGER.info(
@@ -99,7 +98,8 @@ def process_date_range(path_to_watersheds, start_date, end_date):
     vector_basename = os.path.basename(
         os.path.splitext(path_to_watersheds)[0])
     project_basename = (
-        f'''{vector_basename}_{start_date}_{end_date}''')
+        f'month_and_annual_precp_temp_{vector_basename}_{start_date}_'
+        f'{end_date}')
     workspace_dir = f'workspace_{project_basename}'
     task_graph = taskgraph.TaskGraph(
         workspace_dir, multiprocessing.cpu_count(), 15.0)
