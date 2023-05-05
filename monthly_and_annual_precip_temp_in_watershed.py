@@ -7,6 +7,7 @@ import glob
 import logging
 import os
 import sys
+import time
 
 from osgeo import osr
 from ecoshard import geoprocessing
@@ -63,6 +64,7 @@ def mean_of_raster_op(raster_path):
 
 
 def main():
+    start_time = time.time()
     parser = argparse.ArgumentParser(description=(
         'Given a region and a time period create four tables (1) monthly '
         'precip and mean temperature and (2) annual '
@@ -73,18 +75,31 @@ def main():
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument(
-        'start_date', help='start date for summation (YYYY-MM-DD) format')
-    parser.add_argument(
-        'end_date', help='start date for summation (YYYY-MM-DD) format')
+        '--date_range', default=[], action='append', required=True, nargs=2,
+        help='Pass a pair of start/end dates in the (YYYY-MM-DD) format')
     args = parser.parse_args()
 
+    result_workspace_path_list = []
+    for start_date, end_date in args.date_range:
+        result_workspace_path = process_date_range(
+            args.path_to_watersheds, start_date, end_date,
+            args.rain_event_threshold)
+        result_workspace_path_list.append(result_workspace_path)
+
+    LOGGER.info(
+        f'******** ALL DONE ({time.time()-start_time:.2f}s), results '
+        'in:\n\t* ' + '\n\t* '.join(result_workspace_path_list))
+
+
+def process_date_range(path_to_watersheds, start_date, end_date):
+    """Process a given date range and return the workspace."""
     monthly_date_range_list = build_monthly_ranges(
-        args.start_date, args.end_date)
+        start_date, end_date)
 
     vector_basename = os.path.basename(
-        os.path.splitext(args.path_to_watersheds)[0])
+        os.path.splitext(path_to_watersheds)[0])
     project_basename = (
-        f'''{vector_basename}_{args.start_date}_{args.end_date}''')
+        f'''{vector_basename}_{start_date}_{end_date}''')
     workspace_dir = f'workspace_{project_basename}'
     task_graph = taskgraph.TaskGraph(
         workspace_dir, multiprocessing.cpu_count(), 15.0)
@@ -114,7 +129,7 @@ def main():
                     clip_dir, f'clip_{DATASET_ID}_{variable_id}_{date_str}')
 
                 vector_info = geoprocessing.get_vector_info(
-                    args.path_to_watersheds)
+                    path_to_watersheds)
                 vector_projection = osr.SpatialReference()
                 vector_projection.ImportFromWkt(vector_info['projection_wkt'])
                 if vector_projection.IsProjected():
@@ -130,7 +145,7 @@ def main():
                 fetch_and_clip_args = (
                     DATASET_ID, dataset_args,
                     clip_cell_size,
-                    args.path_to_watersheds, clip_path)
+                    path_to_watersheds, clip_path)
 
                 exists_task = task_graph.add_task(
                     func=fetch_data.file_exists,
@@ -217,7 +232,7 @@ def main():
     # create table that lists precip and temp means per month
     target_base = (
         f"{vector_basename}_monthly_precip_temp_mean_"
-        f"{args.start_date}_{args.end_date}")
+        f"{start_date}_{end_date}")
     target_table_path = os.path.join(workspace_dir, f"{target_base}.csv")
 
     # report precip and temp cronologically by month
@@ -242,7 +257,7 @@ def main():
             ('precip', precip_by_month), ('temp', temp_by_month)]:
         monthly_normal_table_path = (
             f"{vector_basename}_monthly_{table_type}_normal_"
-            f"{args.start_date}_{args.end_date}.csv")
+            f"{start_date}_{end_date}.csv")
         target_table_path = os.path.join(workspace_dir, f"{target_base}.csv")
         with open(monthly_normal_table_path, 'w') as \
                 monthly_normal_table:
@@ -253,7 +268,7 @@ def main():
 
     target_base = (
         f"{vector_basename}_annual_precip_mean_"
-        f"{args.start_date}_{args.end_date}")
+        f"{start_date}_{end_date}")
     target_table_path = os.path.join(workspace_dir, f"{target_base}.csv")
     print(f'generating summary table to {target_table_path}')
     with open(target_table_path, 'w') as table_file:
@@ -285,12 +300,12 @@ def main():
     total_precip_path = os.path.join(
         workspace_dir,
         (f"{vector_basename}_precip_mm_sum_"
-         f"{args.start_date}_{args.end_date}.tif"))
+         f"{start_date}_{end_date}.tif"))
 
     total_temp_mean_path = os.path.join(
         workspace_dir,
         (f"{vector_basename}_temp_C_monthly_mean_"
-         f"{args.start_date}_{args.end_date}.tif"))
+         f"{start_date}_{end_date}.tif"))
 
     _ = task_graph.add_task(
         func=geoprocessing.raster_calculator,
@@ -312,8 +327,7 @@ def main():
 
     task_graph.join()
     task_graph.close()
-
-    LOGGER.info(f'********** ALL DONE -> results are in {workspace_dir}')
+    return workspace_dir
 
 
 if __name__ == '__main__':
