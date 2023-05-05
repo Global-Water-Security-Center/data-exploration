@@ -86,25 +86,44 @@ def main():
     parser.add_argument(
         'path_to_watersheds', help='Path to vector/shapefile of watersheds')
     parser.add_argument(
-        'start_date', help='start date for summation (YYYY-MM-DD) format')
-    parser.add_argument(
-        'end_date', help='start date for summation (YYYY-MM-DD) format')
+        '--date_range', default=[], action='append', required=True, nargs=2,
+        help='Pass a pair of start/end dates in the (YYYY-MM-DD) format')
+    # parser.add_argument(
+    #     'start_date', help='start date for summation (YYYY-MM-DD) format')
+    # parser.add_argument(
+    #     'end_date', help='start date for summation (YYYY-MM-DD) format')
     parser.add_argument(
         '--rain_event_threshold', default=0.1, type=float,
         help='amount of rain (mm) in a day to count as a rain event')
     args = parser.parse_args()
 
+    result_workspace_path_list = []
+    for start_date, end_date in args.date_range:
+        result_workspace_path = process_date_range(
+            args.path_to_watersheds, start_date, end_date,
+            args.rain_event_threshold)
+        result_workspace_path_list.append(result_workspace_path)
+
+    LOGGER.info(
+        f'******** ALL DONE ({time.time()-start_time:.2f}s), results in:\n\t* ' +
+        '\n\t* '.join(result_workspace_path_list))
+
+
+def process_date_range(
+        path_to_watersheds, start_date, end_date,
+        rain_event_threshold):
+    """Process a given date range for storm event detection."""
     vector_basename = os.path.basename(
-        os.path.splitext(args.path_to_watersheds)[0])
+        os.path.splitext(path_to_watersheds)[0])
     project_basename = (
-        f'''{vector_basename}_{args.start_date}_{args.end_date}''')
+        f'''{vector_basename}_{start_date}_{end_date}''')
     workspace_dir = f'workspace_{project_basename}'
 
     task_graph = taskgraph.TaskGraph(
         workspace_dir, multiprocessing.cpu_count(), 15.0)
 
     monthly_date_range_list = build_monthly_ranges(
-        args.start_date, args.end_date)
+        start_date, end_date)
     LOGGER.debug(monthly_date_range_list)
 
     clip_dir = os.path.join(workspace_dir, 'clip')
@@ -121,8 +140,7 @@ def main():
             clip_path = os.path.join(
                 clip_dir, f'clip_{DATASET_ID}_{VARIABLE_ID}_{date_str}')
 
-            vector_info = geoprocessing.get_vector_info(
-                args.path_to_watersheds)
+            vector_info = geoprocessing.get_vector_info(path_to_watersheds)
             vector_projection = osr.SpatialReference()
             vector_projection.ImportFromWkt(vector_info['projection_wkt'])
             if vector_projection.IsProjected():
@@ -138,7 +156,7 @@ def main():
             fetch_and_clip_args = (
                 DATASET_ID, dataset_args,
                 clip_cell_size,
-                args.path_to_watersheds, clip_path)
+                path_to_watersheds, clip_path)
 
             exists_task = task_graph.add_task(
                 func=fetch_data.file_exists,
@@ -183,7 +201,7 @@ def main():
         monthly_precip_task = task_graph.add_task(
             func=_process_month,
             args=(
-                clip_path_band_list, MASK_NODATA, args.rain_event_threshold,
+                clip_path_band_list, MASK_NODATA, rain_event_threshold,
                 monthly_precip_path),
             target_path_list=[monthly_precip_path],
             dependent_task_list=clip_task_list,
@@ -193,7 +211,7 @@ def main():
 
     precip_over_all_time_path = os.path.join(
         workspace_dir, f'''overall_{project_basename}_48hr_avg_precip_events_{
-        args.start_date}_{args.end_date}.tif''')
+        start_date}_{end_date}.tif''')
     with open(
             f'{os.path.splitext(precip_over_all_time_path)[0]}.csv', 'w') as \
             csv_table:
@@ -227,12 +245,10 @@ def main():
     b.WriteArray(running_sum)
     b = None
     r = None
-    print(
-        f'all done ({time.time()-start_time:.2f}s), results in '
-        f'{workspace_dir}')
 
     task_graph.join()
     task_graph.close()
+    return workspace_dir
 
 
 if __name__ == '__main__':
