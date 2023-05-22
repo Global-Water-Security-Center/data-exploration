@@ -114,6 +114,7 @@ def process_date_range(
     project_basename = (
         f'''storm_event_detection_{vector_basename}_{start_date}_{end_date}''')
     workspace_dir = f'workspace_{project_basename}'
+    os.makedirs(workspace_dir, exist_ok=True)
 
     task_graph = taskgraph.TaskGraph(
         workspace_dir, multiprocessing.cpu_count(), 15.0)
