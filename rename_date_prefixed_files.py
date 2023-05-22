@@ -1,14 +1,23 @@
 """See `python scriptname.py --help"""
-from pathlib import Path
-import os
+from datetime import datetime
 import argparse
-import re
 import glob
+import os
+import re
 
 PATTERN = r'(.*QL)\d{8}(-.*)'
 NEW_PATTERN = r'\g<1>{NEW_DATE}\g<2>'
 
+
+def boolean_type(value):
+    if value.lower() in ['true', 'false']:
+        return value.lower() == 'true'
+    else:
+        raise argparse.ArgumentTypeError("Expected 'true' or 'false'")
+
+
 def main():
+    current_date = datetime.now().strftime('%Y%m%d')
     parser = argparse.ArgumentParser(description=(
         f'Script to rename files with the pattern '
         f'{PATTERN} to {NEW_PATTERN}.'))
@@ -16,10 +25,11 @@ def main():
         'directories_to_search', nargs='+',
         help='Path/pattern to directories to search')
     parser.add_argument(
-        '--new_date', required=True, type=str,
-        help='Date pattern to replace the matching pattern with.')
+        '--new_date', default=current_date, help=(
+            'Date pattern to replace the matching pattern with, default is '
+            f'current date as {current_date}.'))
     parser.add_argument(
-        '--rename', type=bool, help=(
+        '--rename', type=boolean_type, help=(
             'Pass with an argument of True to do the rename, '
             'otherwise it lists what the renames will be.'))
     args = parser.parse_args()
@@ -43,7 +53,7 @@ def main():
             renamed_path = re.sub(PATTERN, NEW_PATTERN.format(
                 NEW_DATE=args.new_date), file_path)
 
-            if os.path.exists(renamed_path):
+            if os.path.exists(renamed_path) and renamed_path != file_path:
                 conflicting_file_list.append((file_path, renamed_path))
             else:
                 rename_file_list.append((file_path, renamed_path))
@@ -52,7 +62,6 @@ def main():
         raise ValueError(
             'The following files if renamed will conflict with an existing '
             'file:\n' + '\n'.join([
-                (' SAME FILE >>' if path_a == path_b else ' *') +
                 f' {path_a} -> {path_b}'
                 for path_a, path_b in conflicting_file_list]))
 
@@ -60,6 +69,11 @@ def main():
           'DRY RUN, pass --rename True to rename:')
 
     for base_path, renamed_path in rename_file_list:
+        if base_path == renamed_path:
+            print(
+                f'skipping {base_path} -> {renamed_path} because it is the '
+                'same file')
+            continue
         print(f' * {base_path} -> {renamed_path}')
         if args.rename:
             os.rename(base_path, renamed_path)
