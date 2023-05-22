@@ -15,6 +15,11 @@ def boolean_type(value):
     else:
         raise argparse.ArgumentTypeError("Expected 'true' or 'false'")
 
+def eight_digit_type(value):
+    if len(value) != 8 or not value.isdigit():
+        raise argparse.ArgumentTypeError("Expected exactly 8 digits")
+    return value
+
 
 def main():
     current_date = datetime.now().strftime('%Y%m%d')
@@ -25,7 +30,7 @@ def main():
         'directories_to_search', nargs='+',
         help='Path/pattern to directories to search')
     parser.add_argument(
-        '--new_date', default=current_date, help=(
+        '--new_date', type=eight_digit_type, default=current_date, help=(
             'Date pattern to replace the matching pattern with, default is '
             f'current date as {current_date}.'))
     parser.add_argument(
