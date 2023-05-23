@@ -1,4 +1,5 @@
 """See `python scriptname.py --help"""
+from pathlib import Path
 import argparse
 import datetime
 import logging
@@ -204,20 +205,24 @@ def process_date_range(
             dependent_task_list=clip_task_list,
             task_name=f'process month {monthly_precip_path}')
         monthly_precip_path_list.append(
-            (monthly_precip_task, start_date[:7], monthly_precip_path))
+            (monthly_precip_task, start_date[:7], Path(monthly_precip_path)))
 
-    precip_over_all_time_path = os.path.join(
+    precip_over_all_time_path = Path(os.path.join(
         workspace_dir, f'''overall_{project_basename}_48hr_avg_precip_events_{
-        start_date}_{end_date}.tif''')
-    with open(
-            f'{os.path.splitext(precip_over_all_time_path)[0]}.csv', 'w') as \
-            csv_table:
+        start_date}_{end_date}.tif'''))
+
+    table_path = r'\\?\{}'.format(
+        Path(f'{os.path.splitext(precip_over_all_time_path)[0]}.csv').
+        resolve())
+
+    with open(table_path, 'w') as csv_table:
         csv_table.write('year-month,number of storm events in region\n')
         running_sum = None
         for monthly_precip_task, month_date, raster_path in \
                 monthly_precip_path_list:
             monthly_precip_task.join()
-            r = gdal.OpenEx(raster_path)
+            absolute_raster_path = r'\\?\{}'.format(raster_path.resolve())
+            r = gdal.OpenEx(str(absolute_raster_path))
             b = r.GetRasterBand(1)
             array = b.ReadAsArray()
             nodata = b.GetNoDataValue()
@@ -236,7 +241,9 @@ def process_date_range(
 
     # write the final overall raster
     shutil.copyfile(raster_path, precip_over_all_time_path)
-    r = gdal.OpenEx(precip_over_all_time_path, gdal.OF_RASTER | gdal.GA_Update)
+    r = gdal.OpenEx(
+        r'\\?\{}'.format(precip_over_all_time_path.resolve()),
+        gdal.OF_RASTER | gdal.GA_Update)
     b = r.GetRasterBand(1)
     running_sum[~valid_mask] = MASK_NODATA
     b.WriteArray(running_sum)
