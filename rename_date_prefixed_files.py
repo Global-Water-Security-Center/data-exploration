@@ -50,8 +50,6 @@ def main():
     for dir_path in paths_to_search:
         for filename in os.listdir(dir_path):
             file_path = os.path.join(dir_path, filename)
-            if not os.path.isfile(file_path):
-                continue
             match = re.match(PATTERN, file_path)
             if not match:
                 continue
