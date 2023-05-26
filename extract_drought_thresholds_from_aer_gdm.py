@@ -1,18 +1,21 @@
 """See `python scriptname.py --help"""
+import datetime
 import concurrent
 import collections
 import argparse
 import logging
 import sys
 
+from concurrent.futures import ThreadPoolExecutor
+from ecoshard import fetch_data
 from rasterio.transform import Affine
+from dateutil.relativedelta import relativedelta
 import utils
 import geopandas
 import numpy
 import pandas
 import rasterio
 import xarray
-
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -46,6 +49,25 @@ def main():
     # aoi_vector_path = 'drycorridor.shp'
     # start_date = '1979-01-01'
     # end_date = '2021-12-21'
+
+    # fetch all the files
+    start_date = datetime.strptime(args.start_date, '%Y-%m')
+    end_date = datetime.strptime(args.end_date, '%Y-%m')
+
+    netcat_file_list = []
+
+    fetch_args_list = []
+    current_date = start_date
+    while current_date <= end_date:
+        year, month = current_date.strftime('%Y-%m').split('-')
+        fetch_args_list.append(
+            ('aer_drought_netcat_monthly', {
+                'year': year, 'month': month}))
+        current_date += relativedelta(months=1)
+
+    with ThreadPoolExecutor() as executor:
+        netcat_file_list = list(executor.map(
+            fetch_data.fetch_file, fetch_args_list))
 
     aoi_vector = geopandas.read_file(args.aoi_vector_path)
     aoi_vector = aoi_vector.to_crs('EPSG:4236')

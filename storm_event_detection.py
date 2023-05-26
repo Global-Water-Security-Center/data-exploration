@@ -21,7 +21,7 @@ import requests
 from ecoshard import fetch_data
 
 logging.basicConfig(
-    level=logging.WARNING,
+    level=logging.DEBUG,
     stream=sys.stdout,
     format=(
         '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
@@ -114,8 +114,8 @@ def process_date_range(
         os.path.splitext(path_to_watersheds)[0])
     project_basename = (
         f'''storm_event_detection_{vector_basename}_{start_date}_{end_date}''')
-    workspace_dir = f'workspace_{project_basename}'
-    os.makedirs(workspace_dir, exist_ok=True)
+    workspace_dir = Path(f'workspace_{project_basename}')
+    workspace_dir.mkdir(parents=True, exist_ok=True)
 
     task_graph = taskgraph.TaskGraph(
         workspace_dir, multiprocessing.cpu_count(), 15.0)
