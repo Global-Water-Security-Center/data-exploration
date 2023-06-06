@@ -216,7 +216,10 @@ def main():
                         valid_mask |= local_slice.mask == 1
                     monthly_drought_pixel_count += numpy.count_nonzero(
                         valid_drought_pixels)
-                table_file.write(f',{monthly_drought_pixel_count}')
+                    table_file.write(f',{monthly_drought_pixel_count}')
+                else:
+                    table_file.write(
+                        f',{numpy.count_nonzero(valid_drought_pixels)}')
 
             LOGGER.debug(
                 f'{month_date} - {monthly_drought_pixel_count} '
