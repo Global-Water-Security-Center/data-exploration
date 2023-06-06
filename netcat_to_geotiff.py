@@ -43,6 +43,13 @@ def main():
                 (coord_array[-1] - coord_array[0]) / len(coord_array)))
             coord_list.append(coord_array)
 
+        if len(dataset.coords) == 3:
+            band_coord = set(dataset.coords).difference(args.x_y_fields).pop()
+            n_bands = len(dataset.coords[band_coord])
+        else:
+            n_bands = 1
+
+
         transform = Affine.translation(
             *[a[0] for a in coord_list]) * Affine.scale(*res_list)
 
@@ -57,7 +64,7 @@ def main():
                 driver="GTiff",
                 height=len(coord_list[1]),
                 width=len(coord_list[0]),
-                count=1,
+                count=n_bands,
                 dtype=numpy.float32,
                 nodata=None,
                 crs="+proj=latlong",
