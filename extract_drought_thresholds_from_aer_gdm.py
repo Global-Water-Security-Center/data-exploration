@@ -229,7 +229,7 @@ def main():
             table_file.write('\n')
 
     file_basename = (
-        f'{utils.file_basename(args.aoi_vector_path)}_'
+        f'{utils.file_basename(args.aoi_vector_path)}_{filter_str}'
         f'{args.start_date}_{args.end_date}')
     table_path = f'''spei12_drought_info_by_year_{file_basename}.csv'''
     with open(table_path, 'w') as table_file:
