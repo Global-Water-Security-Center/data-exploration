@@ -120,6 +120,9 @@ def main():
     parser.add_argument(
         'end_date', type=str, help='end date YYYY-MM',
         action=ValidateYearMonthFormat)
+    parser.add_argument(
+        '--filter_aoi_by_field', help=(
+            'an argument of the form FIELDNAME=VALUE such as `sov_a3=AFG`'))
     args = parser.parse_args()
 
     # aoi_vector_path = 'drycorridor.shp'
@@ -150,6 +153,9 @@ def main():
 
     aoi_vector = geopandas.read_file(args.aoi_vector_path)
     aoi_vector = aoi_vector.to_crs('EPSG:4236')
+    if args.filter_aoi_by_field:
+        field_id, value = args.filter_aoi_by_field.split('=')
+        aoi_vector = aoi_vector[aoi_vector[field_id] == value]
 
     date_range = pandas.date_range(
         start=args.start_date, end=args.end_date, freq='MS')
@@ -160,8 +166,13 @@ def main():
     lat_slice = slice(float(maxy), float(miny))
     lon_slice = slice(float(minx), float(maxx))
 
+    if args.filter_aoi_by_field is not None:
+        filter_str = f'{args.filter_aoi_by_field}_'
+    else:
+        filter_str = ''
+
     table_path = f'''spei12_drought_info_raw_{
-        utils.file_basename(args.aoi_vector_path)}_{
+        utils.file_basename(args.aoi_vector_path)}_{filter_str}{
         args.start_date}_{args.end_date}.csv'''
     drought_months = collections.defaultdict(lambda: collections.defaultdict(int))
     LOGGER.info('start processing')

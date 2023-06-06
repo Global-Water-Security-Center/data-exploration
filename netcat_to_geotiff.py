@@ -49,7 +49,6 @@ def main():
         else:
             n_bands = 1
 
-
         transform = Affine.translation(
             *[a[0] for a in coord_list]) * Affine.scale(*res_list)
 
