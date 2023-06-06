@@ -1,6 +1,9 @@
 """See `python scriptname.py --help"""
 import argparse
 import collections
+import geopandas
+import shutil
+
 import multiprocessing
 import datetime
 import glob
@@ -8,6 +11,7 @@ import logging
 import os
 import sys
 import time
+import tempfile
 
 from osgeo import osr
 from ecoshard import geoprocessing
@@ -73,30 +77,52 @@ def main():
         'sum over AOI and (6) '
         'overall monthly temperture mean in the AOI.'))
     parser.add_argument(
-        'path_to_watersheds', help='Path to vector/shapefile of watersheds')
+        'path_to_aoi', help='Path to vector/shapefile of watersheds')
     parser.add_argument(
         '--date_range', default=[], action='append', required=True, nargs=2,
         help='Pass a pair of start/end dates in the (YYYY-MM-DD) format')
+    parser.add_argument(
+        '--filter_aoi_by_field', help=(
+            'an argument of the form FIELDNAME=VALUE such as `sov_a3=AFG`'))
     args = parser.parse_args()
+
+    temp_dir = None
+    if args.filter_aoi_by_field:
+        temp_dir = tempfile.mkdtemp(dir='.')
+        filtered_aoi_path = os.path.join(
+            temp_dir,
+            f'{os.path.basename(os.path.splitext(args.path_to_aoi)[0])}'
+            f'{args.filter_aoi_by_field}.gpkg')
+        aoi_vector = geopandas.read_file(args.path_to_aoi)
+        field_id, value = args.filter_aoi_by_field.split('=')
+        aoi_vector = aoi_vector[aoi_vector[field_id] == value]
+        aoi_vector.to_file(filtered_aoi_path, driver='GPKG')
+        aoi_vector = None
+        aoi_path = filtered_aoi_path
+    else:
+        aoi_path = args.path_to_aoi
 
     result_workspace_path_list = []
     for start_date, end_date in args.date_range:
         result_workspace_path = process_date_range(
-            args.path_to_watersheds, start_date, end_date)
+            aoi_path, start_date, end_date)
         result_workspace_path_list.append(result_workspace_path)
+
+    if temp_dir is not None:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     LOGGER.info(
         f'******** ALL DONE ({time.time()-start_time:.2f}s), results '
         'in:\n\t* ' + '\n\t* '.join(result_workspace_path_list))
 
 
-def process_date_range(path_to_watersheds, start_date, end_date):
+def process_date_range(path_to_aoi, start_date, end_date):
     """Process a given date range and return the workspace."""
     monthly_date_range_list = build_monthly_ranges(
         start_date, end_date)
 
     vector_basename = os.path.basename(
-        os.path.splitext(path_to_watersheds)[0])
+        os.path.splitext(path_to_aoi)[0])
     project_basename = (
         f'month_and_annual_precp_temp_{vector_basename}_{start_date}_'
         f'{end_date}')
@@ -129,7 +155,7 @@ def process_date_range(path_to_watersheds, start_date, end_date):
                     clip_dir, f'clip_{DATASET_ID}_{variable_id}_{date_str}')
 
                 vector_info = geoprocessing.get_vector_info(
-                    path_to_watersheds)
+                    path_to_aoi)
                 vector_projection = osr.SpatialReference()
                 vector_projection.ImportFromWkt(vector_info['projection_wkt'])
                 if vector_projection.IsProjected():
@@ -145,7 +171,7 @@ def process_date_range(path_to_watersheds, start_date, end_date):
                 fetch_and_clip_args = (
                     DATASET_ID, dataset_args,
                     clip_cell_size,
-                    path_to_watersheds, clip_path)
+                    path_to_aoi, clip_path)
 
                 exists_task = task_graph.add_task(
                     func=fetch_data.file_exists,
