@@ -41,7 +41,6 @@ def main():
                 if decode_times is False:
                     raise
                 decode_times = False
-
         res_list = []
         coord_list = []
         for coord_id, field_id in zip(['x', 'y'], args.x_y_fields):
@@ -86,14 +85,17 @@ def main():
                     key: value
                     for key, value in zip(coord_values.keys(), combination)}
                 local_dataset = dataset.sel(**local_selector)
-                combination_suffix = ''.join([
+                combination_suffix = '_'+'_'.join([
                     f'{key}{value}' for key, value in local_selector.items()])
+                if combination_suffix == '_':
+                    combination_suffix = ''
                 target_dir = os.path.join(args.out_dir, variable_name)
                 os.makedirs(target_dir, exist_ok=True)
                 filename = f"{basename}_{variable_name}{combination_suffix}.tif"
                 print(filename)
+                target_path = os.path.join(target_dir, filename)
                 with rasterio.open(
-                    os.path.join(target_dir, filename),
+                    target_path,
                     mode="w",
                     driver="GTiff",
                     height=len(coord_list[1]),
@@ -107,7 +109,7 @@ def main():
                         'tiled': 'YES',
                         'COMPRESS': 'LZW',
                         'PREDICTOR': 2}) as new_dataset:
-                    print(local_dataset[variable_name])
+                    print(f'writing {target_path}')
                     local_variable_ds = local_dataset[variable_name]
                     if len(local_variable_ds.dims) == 2:
                         new_dataset.write(
