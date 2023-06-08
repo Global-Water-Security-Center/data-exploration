@@ -14,8 +14,13 @@ def main():
         try:
             print(rioxarray.open_rasterio(
                 args.raster_path, decode_times=decode_times))
-            print(xarray.open_dataset(
-                args.raster_path, decode_times=decode_times))
+            print('DETAILS OF ALL VARS: ')
+            nc_file = xarray.open_dataset(
+                args.raster_path, decode_times=decode_times)
+            for var in nc_file.variables:
+                print(f"{var}:")
+                for attr_name, attr_value in nc_file[var].attrs.items():
+                    print(f"    {attr_name}: {attr_value}")
             break
         except ValueError:
             if decode_times is False:

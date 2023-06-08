@@ -29,7 +29,16 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     for nc_path in glob.glob(args.netcat_path):
         print(f'processing {nc_path}')
-        dataset = xarray.open_dataset(nc_path)
+        decode_times = True
+        while True:
+            try:
+                dataset = xarray.open_dataset(
+                    nc_path, decode_times=decode_times)
+                break
+            except ValueError:
+                if decode_times is False:
+                    raise
+                decode_times = False
 
         res_list = []
         coord_list = []
@@ -43,11 +52,14 @@ def main():
                 (coord_array[-1] - coord_array[0]) / len(coord_array)))
             coord_list.append(coord_array)
 
+        print(dataset.coords)
         if len(dataset.coords) == 3:
             band_coord = set(dataset.coords).difference(args.x_y_fields).pop()
+            print(band_coord)
             n_bands = len(dataset.coords[band_coord])
         else:
             n_bands = 1
+        print(f'expecting {n_bands} bands')
 
         transform = Affine.translation(
             *[a[0] for a in coord_list]) * Affine.scale(*res_list)
