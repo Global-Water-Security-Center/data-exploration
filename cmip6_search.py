@@ -1,12 +1,33 @@
 from concurrent.futures import ThreadPoolExecutor
-import json
 import argparse
 import collections
+import logging
+import os
 import requests
+import shutil
+import sys
+
+from rasterio.transform import Affine
+import numpy
+import rasterio
+import xarray
+
 
 BASE_URL = 'https://esgf-node.llnl.gov/esg-search/search'
 BASE_SEARCH_URL = 'https://esgf-node.llnl.gov/search_files'
 VARIANT_SUFFIX = 'i1p1f1'
+LOCAL_CACHE_DIR = '_cmip6_local_cache'
+os.makedirs(LOCAL_CACHE_DIR, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'))
+LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
+LOGGER.setLevel(logging.DEBUG)
+logging.getLogger('fetch_data').setLevel(logging.INFO)
 
 
 def print_dict(d, indent=0):
@@ -14,6 +35,61 @@ def print_dict(d, indent=0):
         print('  ' * indent + str(key))
         if isinstance(value, dict):
             print_dict(value, indent+1)
+
+
+def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
+    """Convert era5 netcat files to geotiff
+
+    Args:
+        netcat_path (str): path to netcat file
+        date_str (str): formatted version of the date to use in the target
+            file
+        target_path_pattern (str): pattern that will allow the replacement
+            of `variable` and `date` strings with the appropriate variable
+            date strings in the netcat variables.
+
+    Returns:
+        list of (file, variable_id) tuples created by this process
+    """
+    LOGGER.info(f'processing {netcat_path}')
+    dataset = xarray.open_dataset(netcat_path)
+
+    res_list = []
+    coord_list = []
+    for coord_id, field_id in zip(['x', 'y'], ['longitude', 'latitude']):
+        coord_array = dataset.coords[field_id]
+        res_list.append(float(
+            (coord_array[-1] - coord_array[0]) / len(coord_array)))
+        coord_list.append(coord_array)
+
+    transform = Affine.translation(
+        *[a[0] for a in coord_list]) * Affine.scale(*res_list)
+
+    target_path_variable_id_list = []
+    for variable_id, data_array in dataset.items():
+        target_path = target_path_pattern.format(**{
+            'date': date_str,
+            'variable': variable_id
+            })
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with rasterio.open(
+            target_path,
+            mode="w",
+            driver="GTiff",
+            height=len(coord_list[1]),
+            width=len(coord_list[0]),
+            count=1,
+            dtype=numpy.float32,
+            nodata=None,
+            crs="+proj=latlong",
+            transform=transform,
+            **{
+                'tiled': 'YES',
+                'COMPRESS': 'LZW',
+                'PREDICTOR': 2}) as new_dataset:
+            new_dataset.write(data_array)
+        target_path_variable_id_list.append((target_path, variable_id))
+    return target_path_variable_id_list
 
 
 def main():
@@ -122,7 +198,36 @@ def main():
                 url = [url.split('|')[0]
                        for url in doc_info['url']
                        if url.endswith('HTTPServer')][0]
-                print(url)
+                file_stream_response = requests.get(url, stream=True)
+                stream_path = os.path.join(
+                    LOCAL_CACHE_DIR, 'streaming', os.path.basename(url))
+                target_path = os.path.join(
+                    LOCAL_CACHE_DIR, os.path.basename(stream_path))
+                if os.path.exists(target_path):
+                    print(f'{target_path} exists, skipping')
+
+                os.makedirs(os.path.dirname(stream_path), exist_ok=True)
+
+                # Get the total file size
+                file_size = int(file_stream_response.headers.get(
+                    'Content-Length', 0))
+
+                # Download the file with progress
+                progress = 0
+
+                with open(stream_path, 'wb') as file:
+                    for chunk in file_stream_response.iter_content(
+                            chunk_size=2**20):
+                        if chunk:  # filter out keep-alive new chunks
+                            file.write(chunk)
+                        # Update the progress
+                        progress += len(chunk)
+                        print(
+                            f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
+                            f'({100. * progress / file_size:5.1f}%) of '
+                            f'{stream_path}')
+                shutil.move(stream_path, target_path)
+
             return
             variant_model_set[(variable_id, experiment_id, source_id)].append(
                 (variant_label, response['url']))

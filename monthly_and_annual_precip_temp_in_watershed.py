@@ -314,8 +314,6 @@ def process_date_range(path_to_aoi, start_date, end_date):
             f'{total_sum/total_months*12}\n')
 
     # generate total precip sum raster
-    monthly_precip_dir
-    monthly_temp_dir
     precip_raster_path_list = [
         (path, 1) for path in glob.glob(os.path.join(
             monthly_precip_dir, '*.tif'))]
