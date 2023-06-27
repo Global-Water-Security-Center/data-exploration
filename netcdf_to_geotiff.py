@@ -2,11 +2,12 @@
 import glob
 import os
 
-import argparse
-import numpy
-import itertools
-import rasterio
+from pathvalidate import sanitize_filename
 from rasterio.transform import Affine
+import argparse
+import itertools
+import numpy
+import rasterio
 import xarray
 
 
@@ -93,7 +94,8 @@ def main():
                 os.makedirs(target_dir, exist_ok=True)
                 filename = f"{basename}_{variable_name}{combination_suffix}.tif"
                 print(filename)
-                target_path = os.path.join(target_dir, filename)
+                target_path = os.path.join(target_dir, sanitize_filename(
+                    filename, replacement_text="_"))
                 with rasterio.open(
                     target_path,
                     mode="w",
@@ -116,19 +118,6 @@ def main():
                             local_variable_ds.expand_dims('band'))
                     else:
                         new_dataset.write(local_variable_ds)
-
-                    #local_dataset = local_dataset[variable_name].expand_dims('band')
-
-                # gdm_dataset = gdm_dataset.sel(
-                #     time=pandas.date_range(start='2012-01-01', end='2022-03-01', freq='MS'))
-                # for date_index in range(len(gdm_dataset.time)):
-                #     # there's only one so just get the first one
-                #   data_key = next(iter(gdm_dataset.isel(time=date_index).data_vars))
-                #   #print(next(iter(gdm_dataset.isel(time=date_index).data_vars)))
-                #   print(f'writing band {basename} {date_index} of {len(gdm_dataset.time)}')
-                #   #print(gdm_dataset.isel(time=date_index)[data_key])
-                #   #new_dataset.write(gdm_dataset.isel(time=date_index)[data_key], 1+date_index)
-                #   new_dataset.write(gdm_dataset.isel(time=date_index)[data_key], 1+date_index)
 
 
 if __name__ == '__main__':
