@@ -94,7 +94,7 @@ def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
 
 def main():
     parser = argparse.ArgumentParser(description=(
-        'Synchronize the files in AER era5 to GWSC wasabi hot storage.'))
+        'Fetch CMIP6 variables into wasabi hot storage.'))
     parser.add_argument(
         '--variables', nargs='+',
         default=['pr', 'tas'],
@@ -190,9 +190,10 @@ def main():
 
             file_search_url = (
                 f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
-            print(file_search_url)
             limit = requests.get(file_search_url).json()["response"]["numFound"]
             file_search_url += f'?limit={limit}'
+            print(file_search_url)
+
             data = requests.get(file_search_url).json()['response']['docs']
             for doc_info in data:
                 url = [url.split('|')[0]
