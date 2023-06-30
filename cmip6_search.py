@@ -218,7 +218,7 @@ def main():
         for offset in range(0, num_results, 1000)]
 
     print(search_param_list)
-    with ThreadPoolExecutor(100) as executor:
+    with ThreadPoolExecutor(50) as executor:
         print('executing')
         response_data_list = list(executor.map(
             lambda search_params:
