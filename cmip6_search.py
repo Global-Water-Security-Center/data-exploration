@@ -6,7 +6,9 @@ import os
 import requests
 import shutil
 import sys
+from threading import Lock
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_error_callback
 from rasterio.transform import Affine
 import numpy
 import rasterio
@@ -29,7 +31,21 @@ LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
 
+ERROR_LOCK = Lock()
 
+
+def handle_retry_error(retry_state):
+    # retry_state.outcome is a built-in tenacity method that contains the result or exception information from the last call
+    last_exception = retry_state.outcome.exception()
+    LOGGER.error(last_exception)
+    with ERROR_LOCK:
+        with open('cmip6_error_log.txt', 'a') as error_log:
+            error_log.write(
+                f"{retry_state.args[0]}," +
+                str(last_exception).replace('\n', '<enter>')+"\n")
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry_error_callback=handle_retry_error)
 def _download_file(url):
     file_stream_response = requests.get(url, stream=True)
     stream_path = os.path.join(
@@ -234,15 +250,17 @@ def main():
                     url = [url.split('|')[0]
                            for url in doc_info['url']
                            if url.endswith('HTTPServer')][0]
-                    download_param_list.append(url)
                     arg_tuple = (
                         (variable_id, experiment_id, source_id, variant_label,
                          url), url)
                     download_param_list.append(arg_tuple)
+                break
+            break
 
         download_data_list = list(executor.map(
-            lambda param_set, url:
-                (param_set, _download_file(url))), download_param_list)
+            lambda param_set:
+                (param_set[0], _download_file(param_set[1])),
+                download_param_list))
 
     # Print the results
     with open('available_models.csv', 'w') as model_table:
