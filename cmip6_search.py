@@ -8,7 +8,7 @@ import shutil
 import sys
 from threading import Lock
 
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_error_callback
+from tenacity import retry, stop_after_attempt, wait_exponential
 from rasterio.transform import Affine
 import numpy
 import rasterio
@@ -46,12 +46,12 @@ def handle_retry_error(retry_state):
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry_error_callback=handle_retry_error)
-def _download_file(url):
+def _download_file(target_dir, url):
     file_stream_response = requests.get(url, stream=True)
     stream_path = os.path.join(
         LOCAL_CACHE_DIR, 'streaming', os.path.basename(url))
     target_path = os.path.join(
-        LOCAL_CACHE_DIR, os.path.basename(stream_path))
+        LOCAL_CACHE_DIR, target_dir, os.path.basename(stream_path))
     if os.path.exists(target_path):
         print(f'{target_path} exists, skipping')
         return target_path
@@ -75,7 +75,8 @@ def _download_file(url):
             print(
                 f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
                 f'({100. * progress / file_size:5.1f}%) of '
-                f'{stream_path}')
+                f'{stream_path} {target_path}')
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
     shutil.move(stream_path, target_path)
     return target_path
 
@@ -217,8 +218,8 @@ def main():
         for offset in range(0, num_results, 1000)]
 
     print(search_param_list)
-    with ThreadPoolExecutor() as executor:
-        print('exeucting')
+    with ThreadPoolExecutor(100) as executor:
+        print('executing')
         response_data_list = list(executor.map(
             lambda search_params:
                 (search_params['offset'],
@@ -226,8 +227,7 @@ def main():
             search_param_list))
         print('done')
 
-        variant_model_set = collections.defaultdict(list)
-        download_param_list = []
+        download_data_list = []
         for offset, response_data in response_data_list:
             print(f'processing {offset} of {num_results}')
             for response in response_data['response']['docs']:
@@ -237,37 +237,36 @@ def main():
                 experiment_id = response['experiment_id'][0]
                 variable_id = response['variable_id'][0]
                 source_id = response['source_id'][0]
-                print(response)
-
+                print(f'{experiment_id}, {variable_id}, {source_id}')
                 file_search_url = (
                     f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
                 limit = requests.get(file_search_url).json()["response"]["numFound"]
                 file_search_url += f'?limit={limit}'
                 print(file_search_url)
-
                 data = requests.get(file_search_url).json()['response']['docs']
+                download_param_list = []
                 for doc_info in data:
                     url = [url.split('|')[0]
                            for url in doc_info['url']
                            if url.endswith('HTTPServer')][0]
                     arg_tuple = (
                         (variable_id, experiment_id, source_id, variant_label,
-                         url), url)
+                         url), (os.path.join(variable_id, experiment_id, source_id, variant_label), url))
                     download_param_list.append(arg_tuple)
+                download_data_list += list(executor.map(
+                    lambda param_set:
+                        (param_set[0], _download_file(*param_set[1])),
+                        download_param_list))
                 break
             break
 
-        download_data_list = list(executor.map(
-            lambda param_set:
-                (param_set[0], _download_file(param_set[1])),
-                download_param_list))
 
     # Print the results
     with open('available_models.csv', 'w') as model_table:
         model_table.write('variable,experiment,model,variant,url,path\n')
         n_downloads = len(download_data_list)
         for index, (model_key, path) in enumerate(download_data_list):
-            LOGGER.info(f'downloading {index/n_downloads-1*100:5.2f}% complete')
+            LOGGER.info(f'downloading {index/(n_downloads-1)*100:5.2f}% complete')
             model_table.write(f'{",".join(model_key)},{path}\n')
 
 
