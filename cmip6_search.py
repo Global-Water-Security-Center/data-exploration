@@ -247,7 +247,9 @@ def main():
     # Print the results
     with open('available_models.csv', 'w') as model_table:
         model_table.write('variable,experiment,model,variant,url,path\n')
-        for model_key, path in download_data_list:
+        n_downloads = len(download_data_list)
+        for index, (model_key, path) in enumerate(download_data_list):
+            LOGGER.info(f'downloading {index/n_downloads-1*100:5.2f}% complete')
             model_table.write(f'{",".join(model_key)},{path}\n')
 
 
