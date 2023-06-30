@@ -30,6 +30,40 @@ LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
 
 
+def _download_file(url):
+    file_stream_response = requests.get(url, stream=True)
+    stream_path = os.path.join(
+        LOCAL_CACHE_DIR, 'streaming', os.path.basename(url))
+    target_path = os.path.join(
+        LOCAL_CACHE_DIR, os.path.basename(stream_path))
+    if os.path.exists(target_path):
+        print(f'{target_path} exists, skipping')
+        return target_path
+
+    os.makedirs(os.path.dirname(stream_path), exist_ok=True)
+
+    # Get the total file size
+    file_size = int(file_stream_response.headers.get(
+        'Content-Length', 0))
+
+    # Download the file with progress
+    progress = 0
+
+    with open(stream_path, 'wb') as file:
+        for chunk in file_stream_response.iter_content(
+                chunk_size=2**20):
+            if chunk:  # filter out keep-alive new chunks
+                file.write(chunk)
+            # Update the progress
+            progress += len(chunk)
+            print(
+                f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
+                f'({100. * progress / file_size:5.1f}%) of '
+                f'{stream_path}')
+    shutil.move(stream_path, target_path)
+    return target_path
+
+
 def print_dict(d, indent=0):
     for key, value in d.items():
         print('  ' * indent + str(key))
@@ -176,106 +210,45 @@ def main():
             search_param_list))
         print('done')
 
-    variant_model_set = collections.defaultdict(list)
-    for offset, response_data in response_data_list:
-        print(f'processing {offset} of {num_results}')
-        for response in response_data['response']['docs']:
-            variant_label = response['variant_label'][0]
-            if not variant_label.endswith(VARIANT_SUFFIX):
-                continue
-            experiment_id = response['experiment_id'][0]
-            variable_id = response['variable_id'][0]
-            source_id = response['source_id'][0]
-            print(response)
+        variant_model_set = collections.defaultdict(list)
+        download_param_list = []
+        for offset, response_data in response_data_list:
+            print(f'processing {offset} of {num_results}')
+            for response in response_data['response']['docs']:
+                variant_label = response['variant_label'][0]
+                if not variant_label.endswith(VARIANT_SUFFIX):
+                    continue
+                experiment_id = response['experiment_id'][0]
+                variable_id = response['variable_id'][0]
+                source_id = response['source_id'][0]
+                print(response)
 
-            file_search_url = (
-                f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
-            limit = requests.get(file_search_url).json()["response"]["numFound"]
-            file_search_url += f'?limit={limit}'
-            print(file_search_url)
+                file_search_url = (
+                    f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
+                limit = requests.get(file_search_url).json()["response"]["numFound"]
+                file_search_url += f'?limit={limit}'
+                print(file_search_url)
 
-            data = requests.get(file_search_url).json()['response']['docs']
-            for doc_info in data:
-                url = [url.split('|')[0]
-                       for url in doc_info['url']
-                       if url.endswith('HTTPServer')][0]
-                file_stream_response = requests.get(url, stream=True)
-                stream_path = os.path.join(
-                    LOCAL_CACHE_DIR, 'streaming', os.path.basename(url))
-                target_path = os.path.join(
-                    LOCAL_CACHE_DIR, os.path.basename(stream_path))
-                if os.path.exists(target_path):
-                    print(f'{target_path} exists, skipping')
+                data = requests.get(file_search_url).json()['response']['docs']
+                for doc_info in data:
+                    url = [url.split('|')[0]
+                           for url in doc_info['url']
+                           if url.endswith('HTTPServer')][0]
+                    download_param_list.append(url)
+                    arg_tuple = (
+                        (variable_id, experiment_id, source_id, variant_label,
+                         url), url)
+                    download_param_list.append(arg_tuple)
 
-                os.makedirs(os.path.dirname(stream_path), exist_ok=True)
-
-                # Get the total file size
-                file_size = int(file_stream_response.headers.get(
-                    'Content-Length', 0))
-
-                # Download the file with progress
-                progress = 0
-
-                with open(stream_path, 'wb') as file:
-                    for chunk in file_stream_response.iter_content(
-                            chunk_size=2**20):
-                        if chunk:  # filter out keep-alive new chunks
-                            file.write(chunk)
-                        # Update the progress
-                        progress += len(chunk)
-                        print(
-                            f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
-                            f'({100. * progress / file_size:5.1f}%) of '
-                            f'{stream_path}')
-                shutil.move(stream_path, target_path)
-
-            return
-            variant_model_set[(variable_id, experiment_id, source_id)].append(
-                (variant_label, response['url']))
-
-            # print(list(response.keys()))
-
-            # ['id', 'version', 'access', 'activity_drs', 'activity_id',
-            #  'cf_standard_name', 'citation_url', 'data_node',
-            #  'data_specs_version', 'dataset_id_template_', 'datetime_start',
-            #  'datetime_stop', 'directory_format_template_', 'east_degrees',
-            #  'experiment_id', 'experiment_title', 'frequency',
-            #  'further_info_url', 'geo', 'geo_units', 'grid', 'grid_label',
-            #  'index_node', 'instance_id', 'institution_id', 'latest',
-            #  'master_id', 'member_id', 'mip_era', 'model_cohort',
-            #  'nominal_resolution', 'north_degrees', 'number_of_aggregations',
-            #  'number_of_files', 'pid', 'product', 'project', 'realm',
-            #  'replica', 'size', 'source_id', 'source_type', 'south_degrees',
-            #  'sub_experiment_id', 'table_id', 'title', 'type', 'url',
-            #  'variable', 'variable_id', 'variable_long_name', 'variable_units',
-            #  'variant_label', 'west_degrees', 'xlink', '_version_', 'retracted', '_timestamp', 'score']
-            # try:
-            #     datetime_start = response['datetime_start']
-            #     datetime_stop = response['datetime_stop']
-            # except KeyError:
-            #     datetime_start = '?'
-            #     datetime_stop = datetime_start
-
-            # %7C
-            # dpesgf03.nccs.nasa.gov/esgf-node.llnl.gov/?limit=10&rnd=1686688804082
-            # https://esgf-node.llnl.gov/search_files/
-
-            # https://esgf-node.llnl.gov/search_files/CMIP6.ScenarioMIP.NASA-GISS.GISS-E2-1-G.ssp245.r101i1p1f1.Amon.pr.gn.v20220115%7C
-            # https://esgf-node.llnl.gov/search_files/CMIP6.ScenarioMIP.NUIST.NESM3.ssp245.r2i1p1f1.day.pr.gn.v20190801%7Cesg.lasg.ac.cn/esgf-node.llnl.gov/?limit=10&rnd=1686688804082
-            # https://esgf-node.llnl.gov/search_files/CMIP6.ScenarioMIP.NUIST.NESM3.ssp245.r2i1p1f1.day.pr.gn.v20190801%7Cesg.lasg.ac.cn/esgf-node.llnl.go/
-            # {BASE_SEARCH_URL}/{response['id']}/{response['data_node']}
+        download_data_list = list(executor.map(
+            lambda param_set, url:
+                (param_set, _download_file(url))), download_param_list)
 
     # Print the results
     with open('available_models.csv', 'w') as model_table:
-        model_table.write(f'variable,experiment,model,variant matching r*{VARIANT_SUFFIX}\n')
-        for model_key in sorted(variant_model_set):
-            variant_list = variant_model_set[model_key]
-            if len(variant_list) < 10:
-                print(variant_list)
-                continue
-            model_table.write(f'{",".join(model_key)},{",".join(sorted(variant_list))}\n')
-
-    # print date range
+        model_table.write('variable,experiment,model,variant,url,path\n')
+        for model_key, path in download_data_list:
+            model_table.write(f'{",".join(model_key)},{path}\n')
 
 
 if __name__ == '__main__':
