@@ -257,9 +257,6 @@ def main():
                     lambda param_set:
                         (param_set[0], _download_file(*param_set[1])),
                         download_param_list))
-                break
-            break
-
 
     # Print the results
     with open('available_models.csv', 'w') as model_table:
