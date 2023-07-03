@@ -8,7 +8,7 @@ import shutil
 import sys
 from threading import Lock
 
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_random_exponential
 from rasterio.transform import Affine
 import numpy
 import rasterio
@@ -43,9 +43,12 @@ def handle_retry_error(retry_state):
             error_log.write(
                 f"{retry_state.args[0]}," +
                 str(last_exception).replace('\n', '<enter>')+"\n")
+            error_log.write(
+                f"\t{retry_state.args[0]}," +
+                str(last_exception.statistics).replace('\n', '<enter>')+"\n")
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry_error_callback=handle_retry_error)
+@retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
 def _download_file(target_dir, url):
     file_stream_response = requests.get(url, stream=True)
     stream_path = os.path.join(
@@ -218,7 +221,7 @@ def main():
         for offset in range(0, num_results, 1000)]
 
     print(search_param_list)
-    with ThreadPoolExecutor(50) as executor:
+    with ThreadPoolExecutor(10) as executor:
         print('executing')
         response_data_list = list(executor.map(
             lambda search_params:
