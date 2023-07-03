@@ -34,6 +34,12 @@ logging.getLogger('fetch_data').setLevel(logging.INFO)
 ERROR_LOCK = Lock()
 
 
+@retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
+def _do_search(offest, search_params):
+    return (search_params['offset'],
+            requests.get(BASE_URL, params=search_params).json())
+
+
 def handle_retry_error(retry_state):
     # retry_state.outcome is a built-in tenacity method that contains the result or exception information from the last call
     last_exception = retry_state.outcome.exception()
@@ -50,7 +56,7 @@ def handle_retry_error(retry_state):
 
 @retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
 def _download_file(target_dir, url):
-    file_stream_response = requests.get(url, stream=True)
+
     stream_path = os.path.join(
         LOCAL_CACHE_DIR, 'streaming', os.path.basename(url))
     target_path = os.path.join(
@@ -58,10 +64,11 @@ def _download_file(target_dir, url):
     if os.path.exists(target_path):
         print(f'{target_path} exists, skipping')
         return target_path
-
     os.makedirs(os.path.dirname(stream_path), exist_ok=True)
+    LOGGER.info(f'downloading {url} to {target_path}')
 
     # Get the total file size
+    file_stream_response = requests.get(url, stream=True)
     file_size = int(file_stream_response.headers.get(
         'Content-Length', 0))
 
@@ -224,10 +231,7 @@ def main():
     with ThreadPoolExecutor(10) as executor:
         print('executing')
         response_data_list = list(executor.map(
-            lambda search_params:
-                (search_params['offset'],
-                 requests.get(BASE_URL, params=search_params).json()),
-            search_param_list))
+            _do_search, search_param_list))
         print('done')
 
         download_data_list = []
