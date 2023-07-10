@@ -1,12 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor
 import argparse
-import collections
+import pickle
 import logging
 import os
 import requests
 import shutil
 import sys
 from threading import Lock
+import traceback
 
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 from rasterio.transform import Affine
@@ -34,12 +35,6 @@ logging.getLogger('fetch_data').setLevel(logging.INFO)
 ERROR_LOCK = Lock()
 
 
-@retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
-def _do_search(offest, search_params):
-    return (search_params['offset'],
-            requests.get(BASE_URL, params=search_params).json())
-
-
 def handle_retry_error(retry_state):
     # retry_state.outcome is a built-in tenacity method that contains the result or exception information from the last call
     last_exception = retry_state.outcome.exception()
@@ -52,6 +47,15 @@ def handle_retry_error(retry_state):
             error_log.write(
                 f"\t{retry_state.args[0]}," +
                 str(last_exception.statistics).replace('\n', '<enter>')+"\n")
+
+
+@retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
+def _do_search(search_params):
+    try:
+        return (search_params['offset'],
+                requests.get(BASE_URL, params=search_params).json())
+    except Exception as e:
+        LOGGER.exception(f'something bad happened')
 
 
 @retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
@@ -221,20 +225,35 @@ def main():
 
     # Loop through all pages and append the results to a list
     #result_by_variable = defaultdict(dict)
-    result_set = set()
+    processed_file_name = 'cmip6_search_processed_datasets.dat'
+    if os.path.exists():
+        with open(processed_file_name, 'rb') as file:
+            # Load the pickled object
+            cmip6_search_processed_datasets = pickle.load(file)
+    else:
+        cmip6_search_processed_datasets = dict()
 
     search_param_list = [
         {**search_params, 'offset': offset}
         for offset in range(0, num_results, 1000)]
 
+    from datetime import datetime
+
+    # Get the current date and time
+    now = datetime.now()
+
+    # Format as a string in the format YYYYMMDD_HHMMSS
+    url_filename = f'CMIP6_urls_{now.strftime("%Y%m%d_%H%M%S")}.txt'
+    url_file = open(url_filename, 'w')
+    url_to_try_later = open('url_to_try_later.txt', 'w')
+
     print(search_param_list)
-    with ThreadPoolExecutor(10) as executor:
+    with ThreadPoolExecutor(50) as executor:
         print('executing')
         response_data_list = list(executor.map(
             _do_search, search_param_list))
         print('done')
 
-        download_data_list = []
         for offset, response_data in response_data_list:
             print(f'processing {offset} of {num_results}')
             for response in response_data['response']['docs']:
@@ -247,31 +266,47 @@ def main():
                 print(f'{experiment_id}, {variable_id}, {source_id}')
                 file_search_url = (
                     f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
-                limit = requests.get(file_search_url).json()["response"]["numFound"]
-                file_search_url += f'?limit={limit}'
-                print(file_search_url)
-                data = requests.get(file_search_url).json()['response']['docs']
-                download_param_list = []
-                for doc_info in data:
-                    url = [url.split('|')[0]
-                           for url in doc_info['url']
-                           if url.endswith('HTTPServer')][0]
-                    arg_tuple = (
-                        (variable_id, experiment_id, source_id, variant_label,
-                         url), (os.path.join(variable_id, experiment_id, source_id, variant_label), url))
-                    download_param_list.append(arg_tuple)
-                download_data_list += list(executor.map(
-                    lambda param_set:
-                        (param_set[0], _download_file(*param_set[1])),
-                        download_param_list))
+                file_set_tuple = (
+                    experiment_id, variable_id, source_id, file_search_url)
+                if file_set_tuple in cmip6_search_processed_datasets:
+                    url_list = cmip6_search_processed_datasets[file_set_tuple]
+                else:
+                    try:
+                        url_list = fetch_urls(file_search_url)
+                        cmip6_search_processed_datasets[file_set_tuple] = url_list
+                    except Exception:
+                        url_to_try_later.write(traceback.format_exc().replace(
+                            '\n', ' '))
+                        url_to_try_later.flush()
+                        continue
+                for url in url_list:
+                    url_file.write(
+                        f'{variable_id},{experiment_id},{source_id},'
+                        f'{variant_label},{url}\n')
+                    url_file.flush()
+    with open(processed_file_name, 'wb') as file:
+        # Pickle the object
+        pickle.dump(cmip6_search_processed_datasets, file)
+    url_file.close()
+    url_to_try_later.close()
 
-    # Print the results
-    with open('available_models.csv', 'w') as model_table:
-        model_table.write('variable,experiment,model,variant,url,path\n')
-        n_downloads = len(download_data_list)
-        for index, (model_key, path) in enumerate(download_data_list):
-            LOGGER.info(f'downloading {index/(n_downloads-1)*100:5.2f}% complete')
-            model_table.write(f'{",".join(model_key)},{path}\n')
+
+def fetch_urls(file_search_url):
+    try:
+        limit = requests.get(file_search_url).json()["response"]["numFound"]
+        file_search_url += f'?limit={limit}'
+        print(file_search_url)
+        data = requests.get(file_search_url).json()['response']['docs']
+        #download_param_list = []
+        url_list = [
+            [url.split('|')[0]
+             for url in doc_info['url']
+             if url.endswith('HTTPServer')][0]
+            for doc_info in data]
+        return url_list
+    except Exception:
+        LOGGER.exception(
+            f'execption in fetch_urls for {file_search_url}')
 
 
 if __name__ == '__main__':
