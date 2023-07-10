@@ -50,12 +50,42 @@ def handle_retry_error(retry_state):
 
 
 @retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
-def _do_search(search_params):
+def _do_search(search_params, cmip6_search_processed_datasets, url_to_try_later_file, url_file, url_lock):
     try:
-        return (search_params['offset'],
-                requests.get(BASE_URL, params=search_params).json())
+        offset = search_params['offset']
+        response_data = requests.get(BASE_URL, params=search_params).json()
+        print(f'processing {offset}')
+        for response in response_data['response']['docs']:
+            variant_label = response['variant_label'][0]
+            if not variant_label.endswith(VARIANT_SUFFIX):
+                continue
+            experiment_id = response['experiment_id'][0]
+            variable_id = response['variable_id'][0]
+            source_id = response['source_id'][0]
+            print(f'{experiment_id}, {variable_id}, {source_id}')
+            file_search_url = (
+                f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
+            file_set_tuple = (
+                experiment_id, variable_id, source_id, file_search_url)
+            if file_set_tuple in cmip6_search_processed_datasets:
+                url_list = cmip6_search_processed_datasets[file_set_tuple]
+            else:
+                try:
+                    url_list = fetch_urls(file_search_url)
+                    cmip6_search_processed_datasets[file_set_tuple] = url_list
+                except Exception:
+                    url_to_try_later_file.write(traceback.format_exc().replace(
+                        '\n', ' '))
+                    url_to_try_later_file.flush()
+                    continue
+            with url_lock:
+                for url in url_list:
+                    url_file.write(
+                        f'{variable_id},{experiment_id},{source_id},'
+                        f'{variant_label},{url}\n')
+                    url_file.flush()
     except Exception as e:
-        LOGGER.exception(f'something bad happened')
+        LOGGER.exception(f'something bad happened during the _do_search')
 
 
 @retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
@@ -245,50 +275,52 @@ def main():
     # Format as a string in the format YYYYMMDD_HHMMSS
     url_filename = f'CMIP6_urls_{now.strftime("%Y%m%d_%H%M%S")}.txt'
     url_file = open(url_filename, 'w')
-    url_to_try_later = open('url_to_try_later.txt', 'w')
-
+    url_to_try_later_file = open('url_to_try_later.txt', 'w')
+    url_lock = Lock()
     print(search_param_list)
     with ThreadPoolExecutor(50) as executor:
         print('executing')
-        response_data_list = list(executor.map(
-            _do_search, search_param_list))
+        executor.map(
+            lambda search_params: _do_search(
+                search_params, search_params, cmip6_search_processed_datasets,
+                url_to_try_later_file, url_file, url_lock), search_param_list)
         print('done')
 
-        for offset, response_data in response_data_list:
-            print(f'processing {offset} of {num_results}')
-            for response in response_data['response']['docs']:
-                variant_label = response['variant_label'][0]
-                if not variant_label.endswith(VARIANT_SUFFIX):
-                    continue
-                experiment_id = response['experiment_id'][0]
-                variable_id = response['variable_id'][0]
-                source_id = response['source_id'][0]
-                print(f'{experiment_id}, {variable_id}, {source_id}')
-                file_search_url = (
-                    f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
-                file_set_tuple = (
-                    experiment_id, variable_id, source_id, file_search_url)
-                if file_set_tuple in cmip6_search_processed_datasets:
-                    url_list = cmip6_search_processed_datasets[file_set_tuple]
-                else:
-                    try:
-                        url_list = fetch_urls(file_search_url)
-                        cmip6_search_processed_datasets[file_set_tuple] = url_list
-                    except Exception:
-                        url_to_try_later.write(traceback.format_exc().replace(
-                            '\n', ' '))
-                        url_to_try_later.flush()
-                        continue
-                for url in url_list:
-                    url_file.write(
-                        f'{variable_id},{experiment_id},{source_id},'
-                        f'{variant_label},{url}\n')
-                    url_file.flush()
+        # for offset, response_data in response_data_list:
+        #     print(f'processing {offset} of {num_results}')
+        #     for response in response_data['response']['docs']:
+        #         variant_label = response['variant_label'][0]
+        #         if not variant_label.endswith(VARIANT_SUFFIX):
+        #             continue
+        #         experiment_id = response['experiment_id'][0]
+        #         variable_id = response['variable_id'][0]
+        #         source_id = response['source_id'][0]
+        #         print(f'{experiment_id}, {variable_id}, {source_id}')
+        #         file_search_url = (
+        #             f"{BASE_SEARCH_URL}/{response['id']}/{response['index_node']}")
+        #         file_set_tuple = (
+        #             experiment_id, variable_id, source_id, file_search_url)
+        #         if file_set_tuple in cmip6_search_processed_datasets:
+        #             url_list = cmip6_search_processed_datasets[file_set_tuple]
+        #         else:
+        #             try:
+        #                 url_list = fetch_urls(file_search_url)
+        #                 cmip6_search_processed_datasets[file_set_tuple] = url_list
+        #             except Exception:
+        #                 url_to_try_later.write(traceback.format_exc().replace(
+        #                     '\n', ' '))
+        #                 url_to_try_later.flush()
+        #                 continue
+        #         for url in url_list:
+        #             url_file.write(
+        #                 f'{variable_id},{experiment_id},{source_id},'
+        #                 f'{variant_label},{url}\n')
+        #             url_file.flush()
     with open(processed_file_name, 'wb') as file:
         # Pickle the object
         pickle.dump(cmip6_search_processed_datasets, file)
     url_file.close()
-    url_to_try_later.close()
+    url_to_try_later_file.close()
 
 
 def fetch_urls(file_search_url):
