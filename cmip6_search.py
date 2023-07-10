@@ -226,7 +226,7 @@ def main():
     # Loop through all pages and append the results to a list
     #result_by_variable = defaultdict(dict)
     processed_file_name = 'cmip6_search_processed_datasets.dat'
-    if os.path.exists():
+    if os.path.exists(processed_file_name):
         with open(processed_file_name, 'rb') as file:
             # Load the pickled object
             cmip6_search_processed_datasets = pickle.load(file)
