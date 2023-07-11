@@ -313,8 +313,10 @@ def _search_for_file_urls(
                         # Pickle the object
                         pickle.dump(local_processed, file)
             except Exception:
-                url_to_try_later_file.write(traceback.format_exc().replace(
-                    '\n', ' '))
+                url_to_try_later_file.write(
+                    f'{file_search_url}|' +
+                    traceback.format_exc().replace('\n', ' ') +
+                    '\n')
                 url_to_try_later_file.flush()
         with url_file_lock:
             for url in url_list:
