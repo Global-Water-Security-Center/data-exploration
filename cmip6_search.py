@@ -306,8 +306,11 @@ def _search_for_file_urls(
                 url_list = fetch_urls(file_search_url)
                 with url_file_lock:
                     # save a new processed url
-                    with open(processed_file_name, 'rb') as file:
-                        local_processed = pickle.load(file)
+                    if os.path.exists(processed_file_name):
+                        with open(processed_file_name, 'rb') as file:
+                            local_processed = pickle.load(file)
+                    else:
+                        local_processed = dict()
                     local_processed[file_set_tuple] = url_list
                     with open(processed_file_name, 'wb') as file:
                         # Pickle the object
