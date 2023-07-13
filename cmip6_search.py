@@ -50,7 +50,7 @@ def handle_retry_error(retry_state):
                 str(last_exception.statistics).replace('\n', '<enter>')+"\n")
 
 
-@retry(stop_max_attempt_number=5,
+@retry(stop=stop_after_attempt(5),
        wait=wait_random_exponential(multiplier=1, min=1, max=10),
        retry_error_callback=handle_retry_error)
 def _do_search(search_params):
@@ -63,7 +63,7 @@ def _do_search(search_params):
         raise
 
 
-@retry(stop_max_attempt_number=5,
+@retry(stop=stop_after_attempt(5),
        wait=wait_random_exponential(multiplier=1, min=1, max=10),
        retry_error_callback=handle_retry_error)
 def _download_file(target_dir, url):
@@ -354,6 +354,7 @@ def _search_for_file_urls(
 def fetch_urls(file_search_url):
     try:
         response = requests.get(file_search_url)
+        response.raise_for_status()
         limit = response.json()["response"]["numFound"]
         file_search_url += f'?limit={limit}'
         print(file_search_url)
