@@ -369,6 +369,7 @@ def fetch_urls(file_search_url):
         LOGGER.exception(f'request failed on {file_search_url}')
         if response.text:
             print(f'REASON: {response.text}')
+        raise
 
 
 if __name__ == '__main__':
