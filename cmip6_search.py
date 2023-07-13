@@ -50,51 +50,59 @@ def handle_retry_error(retry_state):
                 str(last_exception.statistics).replace('\n', '<enter>')+"\n")
 
 
-@retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
+@retry(stop_max_attempt_number=5,
+       wait=wait_random_exponential(multiplier=1, min=1, max=10),
+       retry_error_callback=handle_retry_error)
 def _do_search(search_params):
     try:
         print(f'processing {search_params}')
         return (search_params['offset'],
                 requests.get(BASE_URL, params=search_params).json())
-    except Exception as e:
-        LOGGER.exception(f'something bad happened')
+    except Exception:
+        LOGGER.exception(f'searchon {search_params} failed, possibly retrying')
+        raise
 
 
-@retry(wait=wait_random_exponential(multiplier=1, min=1, max=10), retry_error_callback=handle_retry_error)
+@retry(stop_max_attempt_number=5,
+       wait=wait_random_exponential(multiplier=1, min=1, max=10),
+       retry_error_callback=handle_retry_error)
 def _download_file(target_dir, url):
+    try:
+        stream_path = os.path.join(
+            LOCAL_CACHE_DIR, 'streaming', os.path.basename(url))
+        target_path = os.path.join(
+            LOCAL_CACHE_DIR, target_dir, os.path.basename(stream_path))
+        if os.path.exists(target_path):
+            print(f'{target_path} exists, skipping')
+            return target_path
+        os.makedirs(os.path.dirname(stream_path), exist_ok=True)
+        LOGGER.info(f'downloading {url} to {target_path}')
 
-    stream_path = os.path.join(
-        LOCAL_CACHE_DIR, 'streaming', os.path.basename(url))
-    target_path = os.path.join(
-        LOCAL_CACHE_DIR, target_dir, os.path.basename(stream_path))
-    if os.path.exists(target_path):
-        print(f'{target_path} exists, skipping')
+        # Get the total file size
+        file_stream_response = requests.get(url, stream=True)
+        file_size = int(file_stream_response.headers.get(
+            'Content-Length', 0))
+
+        # Download the file with progress
+        progress = 0
+
+        with open(stream_path, 'wb') as file:
+            for chunk in file_stream_response.iter_content(
+                    chunk_size=2**20):
+                if chunk:  # filter out keep-alive new chunks
+                    file.write(chunk)
+                # Update the progress
+                progress += len(chunk)
+                print(
+                    f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
+                    f'({100. * progress / file_size:5.1f}%) of '
+                    f'{stream_path} {target_path}')
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        shutil.move(stream_path, target_path)
         return target_path
-    os.makedirs(os.path.dirname(stream_path), exist_ok=True)
-    LOGGER.info(f'downloading {url} to {target_path}')
-
-    # Get the total file size
-    file_stream_response = requests.get(url, stream=True)
-    file_size = int(file_stream_response.headers.get(
-        'Content-Length', 0))
-
-    # Download the file with progress
-    progress = 0
-
-    with open(stream_path, 'wb') as file:
-        for chunk in file_stream_response.iter_content(
-                chunk_size=2**20):
-            if chunk:  # filter out keep-alive new chunks
-                file.write(chunk)
-            # Update the progress
-            progress += len(chunk)
-            print(
-                f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
-                f'({100. * progress / file_size:5.1f}%) of '
-                f'{stream_path} {target_path}')
-    os.makedirs(os.path.dirname(target_path), exist_ok=True)
-    shutil.move(stream_path, target_path)
-    return target_path
+    except Exception:
+        LOGGER.exception(
+            f'failed to download {url} to {target_dir}, possibly retrying')
 
 
 def print_dict(d, indent=0):
@@ -169,7 +177,12 @@ def main():
     parser.add_argument(
         '--experiments', nargs='+',
         default=['historical', 'ssp245', 'ssp370'],
-        help="One of ")
+        help="Experiments to search for")
+    parser.add_argument(
+        '--missed_url_file',
+        help=(
+            'overrides a general search and instead fetches urls missing '
+            'from a previous run'))
 
     # CMIP6 is cool bec ause  it has the variants
     # r variable is start each model with a different
@@ -317,10 +330,11 @@ def _search_for_file_urls(
                         pickle.dump(local_processed, file)
             except Exception:
                 url_to_try_later_file.write(
-                    f'{file_search_url}|' +
+                    '|'.join([str(v) for v in file_set_tuple]) + '|' +
                     traceback.format_exc().replace('\n', ' ') +
                     '\n')
                 url_to_try_later_file.flush()
+                url_list = []
         with url_file_lock:
             for url in url_list:
                 url_file.write(
@@ -338,16 +352,22 @@ def _search_for_file_urls(
 
 
 def fetch_urls(file_search_url):
-    limit = requests.get(file_search_url).json()["response"]["numFound"]
-    file_search_url += f'?limit={limit}'
-    print(file_search_url)
-    data = requests.get(file_search_url).json()['response']['docs']
-    url_list = [
-        [url.split('|')[0]
-         for url in doc_info['url']
-         if url.endswith('HTTPServer')][0]
-        for doc_info in data]
-    return url_list
+    try:
+        response = requests.get(file_search_url)
+        limit = response.json()["response"]["numFound"]
+        file_search_url += f'?limit={limit}'
+        print(file_search_url)
+        data = requests.get(file_search_url).json()['response']['docs']
+        url_list = [
+            [url.split('|')[0]
+             for url in doc_info['url']
+             if url.endswith('HTTPServer')][0]
+            for doc_info in data]
+        return url_list
+    except requests.HTTPError:
+        LOGGER.exception(f'request failed on {file_search_url}')
+        if response.text:
+            print(f'REASON: {response.text}')
 
 
 if __name__ == '__main__':
