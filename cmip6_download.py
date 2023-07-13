@@ -14,7 +14,7 @@ from rasterio.transform import Affine
 import numpy
 import rasterio
 import xarray
-
+import pandas
 
 BASE_URL = 'https://esgf-node.llnl.gov/esg-search/search'
 BASE_SEARCH_URL = 'https://esgf-node.llnl.gov/search_files'
@@ -48,9 +48,21 @@ def handle_retry_error(retry_state):
                 f"\t{retry_state.args[0]}," +
                 str(last_exception.statistics).replace('\n', '<enter>')+"\n")
 
+
 def _download_and_process_file(args):
     var, scenario, model, variant, url = args
-    _download_file(LOCAL_CACHE_DIR, url)
+    netcdf_path = _download_file(LOCAL_CACHE_DIR, url)
+    target_path_pattern = r'cmip6/{variable}/{scenario}/{model}/{variant}/cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif'
+
+    target_vars = {
+        'var': var,
+        'scenario': scenario,
+        'model': model,
+        'variant': variant,
+    }
+
+    process_cmip6_netcdf_to_geotiff(
+        netcdf_path, target_vars, target_path_pattern)
 
 
 @retry(stop=stop_after_attempt(5),
@@ -95,7 +107,8 @@ def _download_file(target_dir, url):
         raise
 
 
-def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
+def process_cmip6_netcdf_to_geotiff(
+        netcdf_path, target_vars, target_path_pattern):
     """Convert era5 netcat files to geotiff
 
     Args:
@@ -109,45 +122,70 @@ def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
     Returns:
         list of (file, variable_id) tuples created by this process
     """
-    LOGGER.info(f'processing {netcat_path}')
-    dataset = xarray.open_dataset(netcat_path)
+    try:
+        LOGGER.info(f'processing {netcdf_path}')
+        dataset = xarray.open_dataset(netcdf_path)
+        LOGGER.info(f"{dataset['time']}")
+        # suppose ds is your xarray.Dataset
+        time_var = dataset['time']
+        print(time_var)
+        var = target_vars['var']
+        for i, date in enumerate(time_var):
+            LOGGER.debug(date.item())
+            # 'tas' data for the given date
+            daily_data = dataset[var].isel(time=i)
+            # convert to numpy array
 
-    res_list = []
-    coord_list = []
-    for coord_id, field_id in zip(['x', 'y'], ['longitude', 'latitude']):
-        coord_array = dataset.coords[field_id]
-        res_list.append(float(
-            (coord_array[-1] - coord_array[0]) / len(coord_array)))
-        coord_list.append(coord_array)
+            # print or process date and 2D data
+            date_str = date.item().strftime('%Y-%m-%d')
+            LOGGER.info(f"Date: {date_str}")
+            LOGGER.info(f"2D Data: {daily_data}")
 
-    transform = Affine.translation(
-        *[a[0] for a in coord_list]) * Affine.scale(*res_list)
+            coord_list = []
+            res_list = []
+            for coord_id, field_options in zip(['x', 'y'], [
+                    ['longitude', 'long'],
+                    ['latitude', 'lat']]):
+                for field_id in field_options:
+                    try:
+                        coord_array = dataset.coords[field_id]
+                        res_list.append(float(
+                            (coord_array[-1] - coord_array[0]) /
+                            len(coord_array)))
+                        coord_list.append(coord_array)
+                    except KeyError:
+                        LOGGER.warn(f'{field_id} not in dataset')
+            if len(coord_list) != 2:
+                raise ValueError(
+                    f'coord list not fully defined for {netcdf_path}')
 
-    target_path_variable_id_list = []
-    for variable_id, data_array in dataset.items():
-        target_path = target_path_pattern.format(**{
-            'date': date_str,
-            'variable': variable_id
-            })
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with rasterio.open(
-            target_path,
-            mode="w",
-            driver="GTiff",
-            height=len(coord_list[1]),
-            width=len(coord_list[0]),
-            count=1,
-            dtype=numpy.float32,
-            nodata=None,
-            crs="+proj=latlong",
-            transform=transform,
-            **{
-                'tiled': 'YES',
-                'COMPRESS': 'LZW',
-                'PREDICTOR': 2}) as new_dataset:
-            new_dataset.write(data_array)
-        target_path_variable_id_list.append((target_path, variable_id))
-    return target_path_variable_id_list
+            transform = Affine.translation(
+                *[a[0] for a in coord_list]) * Affine.scale(*res_list)
+
+            target_path_variable_id_list = []
+            target_path = target_path_pattern.format(
+                **{**target_vars, **{'date': date_str}})
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            with rasterio.open(
+                target_path,
+                mode="w",
+                driver="GTiff",
+                height=len(coord_list[1]),
+                width=len(coord_list[0]),
+                count=1,
+                dtype=numpy.float32,
+                nodata=None,
+                crs="+proj=latlong",
+                transform=transform,
+                **{
+                    'tiled': 'YES',
+                    'COMPRESS': 'LZW',
+                    'PREDICTOR': 2}) as new_dataset:
+                new_dataset.write(daily_data.values)
+                target_path_variable_id_list.append(target_path)
+        return target_path_variable_id_list
+    except Exception:
+        LOGGER.exception(f'error on {netcdf_path}')
 
 
 def main():
@@ -163,7 +201,7 @@ def main():
 
     with ThreadPoolExecutor(50) as executor:
         print('executing')
-        executor.map(_download_and_process_file[0:2], param_and_url_list)
+        executor.map(_download_and_process_file, param_and_url_list[0:1])
 
 
 if __name__ == '__main__':
