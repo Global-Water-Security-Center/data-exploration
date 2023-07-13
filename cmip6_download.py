@@ -50,12 +50,12 @@ def handle_retry_error(retry_state):
 
 
 def _download_and_process_file(args):
-    var, scenario, model, variant, url = args
+    variable, scenario, model, variant, url = args
     netcdf_path = _download_file(LOCAL_CACHE_DIR, url)
     target_path_pattern = r'cmip6/{variable}/{scenario}/{model}/{variant}/cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif'
 
     target_vars = {
-        'var': var,
+        'variable': variable,
         'scenario': scenario,
         'model': model,
         'variant': variant,
@@ -129,11 +129,11 @@ def process_cmip6_netcdf_to_geotiff(
         # suppose ds is your xarray.Dataset
         time_var = dataset['time']
         print(time_var)
-        var = target_vars['var']
+        variable = target_vars['variable']
         for i, date in enumerate(time_var):
             LOGGER.debug(date.item())
             # 'tas' data for the given date
-            daily_data = dataset[var].isel(time=i)
+            daily_data = dataset[variable].isel(time=i)
             # convert to numpy array
 
             # print or process date and 2D data
@@ -144,7 +144,7 @@ def process_cmip6_netcdf_to_geotiff(
             coord_list = []
             res_list = []
             for coord_id, field_options in zip(['x', 'y'], [
-                    ['longitude', 'long'],
+                    ['longitude', 'long', 'lon'],
                     ['latitude', 'lat']]):
                 for field_id in field_options:
                     try:
@@ -158,6 +158,9 @@ def process_cmip6_netcdf_to_geotiff(
             if len(coord_list) != 2:
                 raise ValueError(
                     f'coord list not fully defined for {netcdf_path}')
+            LOGGER.debug(coord_list)
+            LOGGER.debug(len(coord_list[0]))
+            LOGGER.debug(len(coord_list[1]))
 
             transform = Affine.translation(
                 *[a[0] for a in coord_list]) * Affine.scale(*res_list)
