@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 import argparse
+import random
 import logging
 import os
 import requests
@@ -7,7 +9,7 @@ import shutil
 import sys
 from functools import partial
 from threading import Lock
-import traceback
+import time
 
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 from rasterio.transform import Affine
@@ -32,37 +34,40 @@ LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
 
-ERROR_LOCK = Lock()
-
 
 def handle_retry_error(retry_state):
     # retry_state.outcome is a built-in tenacity method that contains the result or exception information from the last call
     last_exception = retry_state.outcome.exception()
     LOGGER.error(last_exception)
-    with ERROR_LOCK:
-        with open('cmip6_download_error_log.txt', 'a') as error_log:
-            error_log.write(
-                f"{retry_state.args[0]}," +
-                str(last_exception).replace('\n', '<enter>')+"\n")
-            error_log.write(
-                f"\t{retry_state.args[0]}," +
-                str(last_exception.statistics).replace('\n', '<enter>')+"\n")
+    with open(f'cmip6_download_error_log_{__name__}.txt', 'a') as error_log:
+        error_log.write(
+            f"{retry_state.args[0]}," +
+            str(last_exception).replace('\n', '<enter>')+"\n")
+        error_log.write(
+            f"\t{retry_state.args[0]}," +
+            str(last_exception.statistics).replace('\n', '<enter>')+"\n")
 
 
 def _download_and_process_file(args):
-    variable, scenario, model, variant, url = args
-    netcdf_path = _download_file(LOCAL_CACHE_DIR, url)
-    target_path_pattern = r'cmip6/{variable}/{scenario}/{model}/{variant}/cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif'
+    try:
+        with ProcessPoolExecutor(10) as executor:
+            variable, scenario, model, variant, url = args
+            netcdf_path = _download_file(LOCAL_CACHE_DIR, url)
+            target_path_pattern = r'cmip6/{variable}/{scenario}/{model}/{variant}/cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif'
 
-    target_vars = {
-        'variable': variable,
-        'scenario': scenario,
-        'model': model,
-        'variant': variant,
-    }
-
-    process_cmip6_netcdf_to_geotiff(
-        netcdf_path, target_vars, target_path_pattern)
+            target_vars = {
+                'variable': variable,
+                'scenario': scenario,
+                'model': model,
+                'variant': variant,
+            }
+            LOGGER.info(f'process {target_path_pattern}')
+            process_cmip6_netcdf_to_geotiff(
+                executor, netcdf_path, target_vars, target_path_pattern)
+            LOGGER.info(f'done processing {target_path_pattern}')
+    except Exception:
+        LOGGER.exception(f'error on _download_and_process_file {args}')
+        raise
 
 
 @retry(stop=stop_after_attempt(5),
@@ -108,7 +113,7 @@ def _download_file(target_dir, url):
 
 
 def process_cmip6_netcdf_to_geotiff(
-        netcdf_path, target_vars, target_path_pattern):
+        executor, netcdf_path, target_vars, target_path_pattern):
     """Convert era5 netcat files to geotiff
 
     Args:
@@ -123,24 +128,30 @@ def process_cmip6_netcdf_to_geotiff(
         list of (file, variable_id) tuples created by this process
     """
     try:
-        LOGGER.info(f'processing {netcdf_path}')
         dataset = xarray.open_dataset(netcdf_path)
-        LOGGER.info(f"{dataset['time']}")
-        # suppose ds is your xarray.Dataset
         time_var = dataset['time']
-        print(time_var)
         variable = target_vars['variable']
+        future_list = []
         for i, date in enumerate(time_var):
-            LOGGER.debug(date.item())
-            # 'tas' data for the given date
             daily_data = dataset[variable].isel(time=i)
-            # convert to numpy array
-
-            # print or process date and 2D data
-            date_str = date.item().strftime('%Y-%m-%d')
-            LOGGER.info(f"Date: {date_str}")
-            LOGGER.info(f"2D Data: {daily_data}")
-
+            date_str = None
+            for conversion_fn in [
+                    lambda d: d.item().strftime('%Y-%m-%d'),
+                    lambda d: d.time.strftime('%Y-%m-%d'),
+                    lambda d: pandas.to_datetime(d.values).strftime('%Y-%m-%d'),
+                    lambda d: pandas.to_datetime(d.item(), unit='D'),
+                    lambda d: pandas.to_datetime(d, unit='D'),
+                    lambda d: d.strftime('%Y-%m-%d'),
+                    ]:
+                try:
+                    date_str = conversion_fn(date)
+                    break
+                except Exception:
+                    #LOGGER.exception(f'could not convert, trying again')
+                    continue
+            if date_str is None:
+                raise ValueError(f'could not convert {date}')
+            data_values = daily_data.values[numpy.newaxis, ...]
             coord_list = []
             res_list = []
             for coord_id, field_options in zip(['x', 'y'], [
@@ -154,41 +165,50 @@ def process_cmip6_netcdf_to_geotiff(
                             len(coord_array)))
                         coord_list.append(coord_array)
                     except KeyError:
-                        LOGGER.warn(f'{field_id} not in dataset')
+                        pass
             if len(coord_list) != 2:
                 raise ValueError(
                     f'coord list not fully defined for {netcdf_path}')
-            LOGGER.debug(coord_list)
-            LOGGER.debug(len(coord_list[0]))
-            LOGGER.debug(len(coord_list[1]))
-
             transform = Affine.translation(
                 *[a[0] for a in coord_list]) * Affine.scale(*res_list)
 
-            target_path_variable_id_list = []
             target_path = target_path_pattern.format(
                 **{**target_vars, **{'date': date_str}})
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            with rasterio.open(
-                target_path,
-                mode="w",
-                driver="GTiff",
-                height=len(coord_list[1]),
-                width=len(coord_list[0]),
-                count=1,
-                dtype=numpy.float32,
-                nodata=None,
-                crs="+proj=latlong",
-                transform=transform,
-                **{
-                    'tiled': 'YES',
-                    'COMPRESS': 'LZW',
-                    'PREDICTOR': 2}) as new_dataset:
-                new_dataset.write(daily_data.values)
-                target_path_variable_id_list.append(target_path)
-        return target_path_variable_id_list
+            future = executor.submit(
+                _write_raster, data_values, coord_list, transform, target_path)
+            future_list.append(future)
+        raster_list_result = [future.result() for future in future_list]
+        if len(raster_list_result) != len(future_list):
+            raise ValueError('DIFFERENT VALUES')
+        return
     except Exception:
         LOGGER.exception(f'error on {netcdf_path}')
+
+
+def _write_raster(data_values, coord_list, transform, target_path):
+    try:
+        #LOGGER.info(f'processing {target_path}')
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with rasterio.open(
+            target_path,
+            mode="w",
+            driver="GTiff",
+            height=len(coord_list[1]),
+            width=len(coord_list[0]),
+            count=1,
+            dtype=numpy.float32,
+            nodata=None,
+            crs="+proj=latlong",
+            transform=transform,
+            **{
+                'tiled': 'YES',
+                'COMPRESS': 'LZW',
+                'PREDICTOR': 2}) as new_dataset:
+            new_dataset.write(data_values)
+        return target_path
+    except Exception:
+        LOGGER.exception(f'error on _write_raster for {target_path}')
+        raise
 
 
 def main():
@@ -202,10 +222,18 @@ def main():
     with open(args.url_list_path, 'r') as file:
         param_and_url_list = [line.rstrip().split(',') for line in file]
 
-    with ThreadPoolExecutor(50) as executor:
+    random.seed(1)
+    param_and_url_list = random.sample(param_and_url_list)
+    # for index, val in enumerate(param_and_url_list):
+    #     print(f'{index}: {val}')
+    # return
+    #param_and_url_list = [param_and_url_list[2]]
+    start_time = time.time()
+    with ProcessPoolExecutor(5) as global_executor:
         print('executing')
-        executor.map(_download_and_process_file, param_and_url_list[0:1])
-
+        list(global_executor.map(
+            _download_and_process_file, param_and_url_list))
+    LOGGER.info(f'all done took {time.time()-start_time:.2f}s')
 
 if __name__ == '__main__':
     main()
