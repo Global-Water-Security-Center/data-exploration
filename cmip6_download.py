@@ -273,7 +273,7 @@ def main():
         param_and_url_list = [line.rstrip().split(',') for line in file]
 
     random.seed(1)
-    param_and_url_list = random.sample(param_and_url_list)
+    random.shuffle(param_and_url_list)
     # for index, val in enumerate(param_and_url_list):
     #     print(f'{index}: {val}')
     # return
