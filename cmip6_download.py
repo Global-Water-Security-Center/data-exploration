@@ -280,7 +280,6 @@ def main():
     #param_and_url_list = [param_and_url_list[2]]
     start_time = time.time()
     with ProcessPoolExecutor(5) as global_executor:
-        print(f'executing on {param_and_url_list}')
         future_list = {
             global_executor.submit(
                 _download_and_process_file, param_and_url_arg)
