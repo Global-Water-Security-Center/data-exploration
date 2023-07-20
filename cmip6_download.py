@@ -25,9 +25,7 @@ BASE_URL = 'https://esgf-node.llnl.gov/esg-search/search'
 BASE_SEARCH_URL = 'https://esgf-node.llnl.gov/search_files'
 VARIANT_SUFFIX = 'i1p1f1'
 LOCAL_CACHE_DIR = '_cmip6_local_cache'
-HOT_DIR = 'D:/hot_cache'
-for dir_path in [LOCAL_CACHE_DIR, HOT_DIR]:
-    os.makedirs(dir_path, exist_ok=True)
+os.makedirs(LOCAL_CACHE_DIR, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,7 +55,7 @@ def _download_and_process_file(args):
     try:
         LOGGER.info(f'********* processing {args}')
         variable, scenario, model, variant, url = args
-        netcdf_path = _download_file(HOT_DIR, url)
+        netcdf_path = _download_file(LOCAL_CACHE_DIR, url)
         base_path_pattern = (
             r'cmip6/{variable}/{scenario}/{model}/{variant}/'
             r'cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif')
@@ -72,19 +70,17 @@ def _download_and_process_file(args):
         with ProcessPoolExecutor(5) as executor:
             raster_by_year_map = process_cmip6_netcdf_to_geotiff(
                 executor, netcdf_path, target_vars,
-                os.path.join(HOT_DIR, base_path_pattern))
+                os.path.join(LOCAL_CACHE_DIR, base_path_pattern))
 
             for year, file_list in raster_by_year_map.items():
                 zip_path_pattern = base_path_pattern.format(
                     **{**target_vars, **{'date': year}}).replace(
                     '.tif', '.zip')
-                local_zip_path = os.path.join(HOT_DIR, zip_path_pattern)
-                target_zip_path = os.path.join(
-                    LOCAL_CACHE_DIR, zip_path_pattern)
-                zip_files(file_list, local_zip_path, target_zip_path)
+                target_zip_path = os.path.join(LOCAL_CACHE_DIR, zip_path_pattern)
+                zip_files(file_list, LOCAL_CACHE_DIR, target_zip_path)
             LOGGER.info(f'done processing {os.path.basename(url)}')
-        hot_dir = os.path.dirname(local_zip_path)
-        LOGGER.info(f'removing directory {os.path.dirname(hot_dir)}')
+        LOCAL_CACHE_DIR = os.path.dirname(local_zip_path)
+        LOGGER.info(f'removing directory {os.path.dirname(LOCAL_CACHE_DIR)}')
         shutil.rmtree(os.path.dirname(local_zip_path))
         os.remove(netcdf_path)
         return True
