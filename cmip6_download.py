@@ -24,8 +24,8 @@ BASE_URL = 'https://esgf-node.llnl.gov/esg-search/search'
 BASE_SEARCH_URL = 'https://esgf-node.llnl.gov/search_files'
 VARIANT_SUFFIX = 'i1p1f1'
 LOCAL_CACHE_DIR = '_cmip6_local_cache'
-PROCESSED_FILES_PICKLE = os.path.join(LOCAL_CACHE_DIR, 'processed_files.pkl')
 HOT_DIR = 'D:/hot_cache'
+PROCESSED_FILES_PICKLE = os.path.join(HOT_DIR, 'processed_files.pkl')
 for dir_path in [LOCAL_CACHE_DIR, HOT_DIR]:
     os.makedirs(dir_path, exist_ok=True)
 
@@ -78,7 +78,7 @@ def handle_retry_error(retry_state):
 
 def _download_and_process_file(processed_files, args):
     try:
-        local_zip_path = None
+        local_geotiff_directory = None
         netcdf_path = None
         LOGGER.info(f'********* processing {args}')
         variable, scenario, model, variant, url = args
@@ -92,6 +92,8 @@ def _download_and_process_file(processed_files, args):
         base_path_pattern = (
             r'cmip6/{variable}/{scenario}/{model}/{variant}/'
             r'cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif')
+        local_geotiff_directory = os.path.join(
+            HOT_DIR, base_path_pattern)
         target_vars = {
             'variable': variable,
             'scenario': scenario,
@@ -103,8 +105,7 @@ def _download_and_process_file(processed_files, args):
         with ProcessPoolExecutor(5) as executor:
             raster_by_year_map = process_cmip6_netcdf_to_geotiff(
                 executor, netcdf_path, target_vars,
-                os.path.join(LOCAL_CACHE_DIR, base_path_pattern))
-
+                local_geotiff_directory)
             for year, file_list in raster_by_year_map.items():
                 zip_path_pattern = base_path_pattern.format(
                     **{**target_vars, **{'date': year}}).replace(
@@ -118,14 +119,15 @@ def _download_and_process_file(processed_files, args):
         hot_dir = os.path.dirname(local_zip_path)
         LOGGER.info(f'removing directory {os.path.dirname(hot_dir)}')
         processed_files.add(url)
-        if local_zip_path and os.path.exists(local_zip_path):
-            shutil.rmtree(os.path.dirname(local_zip_path))
-        if netcdf_path and os.path.exists(netcdf_path):
-            os.remove(netcdf_path)
         return True
     except Exception:
         LOGGER.exception(f'error on _download_and_process_file {args}')
         raise
+    finally:
+        if netcdf_path and os.path.exists(netcdf_path):
+            os.remove(netcdf_path)
+        if local_geotiff_directory and os.path.exists(local_geotiff_directory):
+            shutil.rmtree(local_geotiff_directory)
 
 
 def zip_files(file_list, local_path, target_path):
@@ -134,6 +136,7 @@ def zip_files(file_list, local_path, target_path):
             zipf.write(file_path, arcname=os.path.basename(file_path))
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
     shutil.move(local_path, target_path)
+    LOGGER.info(f'zipped to {target_path}')
 
 
 def _download_file(target_dir, url):
@@ -149,9 +152,10 @@ def _download_file(target_dir, url):
         LOGGER.info(f'downloading {url} to {target_path}')
 
         # Get the total file size
-        file_stream_response = requests.get(url, stream=True)
-        file_size = int(file_stream_response.headers.get(
-            'Content-Length', 0))
+        # LOGGER.debug(f'get file size for {url}')
+        file_stream_response = requests.get(url, stream=True, timeout=3)
+        # file_size = int(file_stream_response.headers.get(
+        #     'Content-Length', 0))
 
         # Download the file with progress
         progress = 0
@@ -165,8 +169,7 @@ def _download_file(target_dir, url):
                 progress += len(chunk)
                 if time.time()-last_update > 2:
                     print(
-                        f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
-                        f'({100. * progress / file_size:5.1f}%) of '
+                        f'Downloaded downloaded {progress} bytes of '
                         f'{stream_path} {url}')
                     last_update = time.time()
             file.flush()
@@ -205,6 +208,7 @@ def process_cmip6_netcdf_to_geotiff(
         future_list = []
         raster_by_year = collections.defaultdict(list)
         previous_year = None
+        LOGGER.debug(f'processing {netcdf_path} for time {time_var}')
         for i, date in enumerate(time_var):
             daily_data = dataset[variable].isel(time=i)
             date_str = None
@@ -225,6 +229,14 @@ def process_cmip6_netcdf_to_geotiff(
             if date_str is None:
                 raise ValueError(f'could not convert {date}')
             year = date_str[0:4]
+
+            target_path = target_path_pattern.format(
+                **{**target_vars, **{'date': date_str}})
+            raster_by_year[year].append(target_path)
+            if os.path.exists(target_path):
+                LOGGER.debug(f'{target_path} exists no need to re-make')
+                continue
+
             if previous_year != year:
                 LOGGER.info(f'iterating on {year}: {netcdf_path}')
                 previous_year = year
@@ -271,12 +283,6 @@ def process_cmip6_netcdf_to_geotiff(
                 data_values = data_values[numpy.newaxis, ...]
             transform = Affine.translation(
                 *[a[0] for a in coord_list]) * Affine.scale(*res_list)
-
-            target_path = target_path_pattern.format(
-                **{**target_vars, **{'date': date_str}})
-            raster_by_year[year].append(target_path)
-            if os.path.exists(target_path):
-                continue
             future = executor.submit(
                 _write_raster, data_values, coord_list, transform, target_path)
             future_list.append(future)
@@ -293,7 +299,6 @@ def process_cmip6_netcdf_to_geotiff(
     except Exception:
         LOGGER.exception(f'error on {netcdf_path}')
         raise
-
 
 
 def _write_raster(data_values, coord_list, transform, target_path):
@@ -316,6 +321,7 @@ def _write_raster(data_values, coord_list, transform, target_path):
                 'COMPRESS': 'LZW',
                 'PREDICTOR': 2}) as new_dataset:
             new_dataset.write(data_values)
+        LOGGER.debug(f'wrote the file {target_path}')
         return target_path
     except Exception:
         LOGGER.exception(f'error on _write_raster for {target_path}')
@@ -344,17 +350,21 @@ def main():
         start_time = time.time()
         with ProcessPoolExecutor(5) as global_executor:
             future_list = {
-                global_executor.submit(
-                    _download_and_process_file, processed_files, param_and_url_arg)
+                (global_executor.submit(
+                    _download_and_process_file, processed_files, param_and_url_arg),
+                 param_and_url_arg)
                 for param_and_url_arg in param_and_url_list[0:5]}
 
-            for future in as_completed(future_list):
+            for future, param_and_url_arg in as_completed(future_list):
                 try:
                     _ = future.result()  # This will raise an exception if the worker function failed
                 except Exception:
-                    LOGGER.exception('something failed on download and process')
-                    global_executor.shutdown(wait=False)
-                    raise  # Re-raise the original exception
+                    LOGGER.exception(
+                        f'something failed on download and process for '
+                        f'{param_and_url_arg} but still continuing')
+                    #global_executor.shutdown(wait=False)
+                    #raise  # Re-raise the original exception
+            LOGGER.debug(f'about to quit executor')
     LOGGER.info(f'all done took {time.time()-start_time:.2f}s')
 
 if __name__ == '__main__':
