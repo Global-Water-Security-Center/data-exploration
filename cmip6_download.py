@@ -79,6 +79,7 @@ def handle_retry_error(retry_state):
 def _download_and_process_file(processed_files, args):
     try:
         netcdf_path = None
+        local_hot_dir = None
         LOGGER.info(f'********* processing {args}')
         variable, scenario, model, variant, url = args
         LOGGER.debug(f'checking {url}')
@@ -105,26 +106,29 @@ def _download_and_process_file(processed_files, args):
             raster_by_year_map = process_cmip6_netcdf_to_geotiff(
                 executor, netcdf_path, target_vars,
                 local_geotiff_path_pattern)
-            for year, file_list in raster_by_year_map.items():
-                zip_path_pattern = base_path_pattern.format(
-                    **{**target_vars, **{'date': year}}).replace(
-                    '.tif', '.zip')
-                local_zip_path = os.path.join(HOT_DIR, zip_path_pattern)
-                target_zip_path = os.path.join(
-                    LOCAL_CACHE_DIR, zip_path_pattern)
-                if not os.path.exists(target_zip_path):
-                    zip_files(file_list, local_zip_path, target_zip_path)
-            LOGGER.info(f'done processing {os.path.basename(url)}')
+        for year, file_list in raster_by_year_map.items():
+            zip_path_pattern = base_path_pattern.format(
+                **{**target_vars, **{'date': year}}).replace(
+                '.tif', '.zip')
+            local_zip_path = os.path.join(HOT_DIR, zip_path_pattern)
+            target_zip_path = os.path.join(
+                LOCAL_CACHE_DIR, zip_path_pattern)
+            if not os.path.exists(target_zip_path):
+                zip_files(file_list, local_zip_path, target_zip_path)
+        LOGGER.info(f'done processing {os.path.basename(url)}')
         local_hot_dir = os.path.dirname(local_geotiff_path_pattern).format(
             **target_vars)
         LOGGER.info(f'removing directory {local_hot_dir}')
         processed_files.add(url)
-        shutil.rmtree(local_hot_dir)
-        os.remove(netcdf_path)
         return True
     except Exception:
         LOGGER.exception(f'error on _download_and_process_file {args}')
         raise
+    finally:
+        if local_hot_dir and os.path.exists(local_hot_dir):
+            shutil.rmtree(local_hot_dir)
+        if netcdf_path and os.path.exists(netcdf_path):
+            os.remove(netcdf_path)
 
 
 def zip_files(file_list, local_path, target_path):
@@ -176,11 +180,12 @@ def _download_file(target_dir, url):
     except Exception:
         LOGGER.exception(
             f'failed to download {url} to {target_dir}, possibly retrying')
-        if os.path.exists(stream_path):
-            os.remvoe(stream_path)
         if os.path.exists(target_path):
-            os.remvoe(target_path)
+            os.remove(target_path)
         raise
+    finally:
+        if os.path.exists(stream_path):
+            os.remove(stream_path)
 
 
 def process_cmip6_netcdf_to_geotiff(
@@ -336,7 +341,8 @@ def main():
         # pr,historical,SAM0-UNICON,r1i1p1f1,http://aims3.llnl.gov/thredds/fileServer/css03_data/CMIP6/CMIP/SNU/SAM0-UNICON/historical/r1i1p1f1/day/pr/gn/v20190323/pr_day_SAM0-UNICON_historical_r1i1p1f1_gn_19000101-19001231.nc
 
         with open(args.url_list_path, 'r') as file:
-            param_and_url_list = [line.rstrip().split(',') for line in file]
+            param_and_url_list = [line.rstrip().split(',') for line in file
+                if 'pr_day_FGOALS-g3_ssp370_r3i1p1f1_gn_20600101-20601231' in line]
 
         random.seed(1)
         random.shuffle(param_and_url_list)
@@ -345,12 +351,12 @@ def main():
         # return
         #param_and_url_list = [param_and_url_list[2]]
         start_time = time.time()
-        with ProcessPoolExecutor(5) as global_executor:
+        with ProcessPoolExecutor(50) as global_executor:
             future_list = {
                 global_executor.submit(
                     _download_and_process_file, processed_files,
                     param_and_url_arg)
-                for param_and_url_arg in param_and_url_list[0:10]}
+                for param_and_url_arg in param_and_url_list}
 
             for future in as_completed(future_list):
                 try:
