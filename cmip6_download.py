@@ -103,7 +103,7 @@ def _download_and_process_file(processed_files, args):
         with ProcessPoolExecutor(5) as executor:
             raster_by_year_map = process_cmip6_netcdf_to_geotiff(
                 executor, netcdf_path, target_vars,
-                os.path.join(HOT_DIR, base_path_pattern))
+                os.path.join(LOCAL_CACHE_DIR, base_path_pattern))
 
             for year, file_list in raster_by_year_map.items():
                 zip_path_pattern = base_path_pattern.format(
