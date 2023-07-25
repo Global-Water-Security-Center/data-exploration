@@ -78,7 +78,6 @@ def handle_retry_error(retry_state):
 
 def _download_and_process_file(processed_files, args):
     try:
-        local_geotiff_directory = None
         netcdf_path = None
         LOGGER.info(f'********* processing {args}')
         variable, scenario, model, variant, url = args
@@ -89,23 +88,23 @@ def _download_and_process_file(processed_files, args):
         if not os.path.exists(netcdf_path):
             raise ValueError(
                 f'expected a file at {netcdf_path} but nothing was there downloaded from {url}')
-        base_path_pattern = (
-            r'cmip6/{variable}/{scenario}/{model}/{variant}/'
-            r'cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif')
-        local_geotiff_directory = os.path.join(
-            HOT_DIR, base_path_pattern)
         target_vars = {
             'variable': variable,
             'scenario': scenario,
             'model': model,
             'variant': variant,
         }
+        base_path_pattern = (
+            r'cmip6/{variable}/{scenario}/{model}/{variant}/'
+            r'cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif')
+        local_geotiff_path_pattern = os.path.join(
+            HOT_DIR, base_path_pattern)
         LOGGER.info(f'process {os.path.basename(url)}')
 
         with ProcessPoolExecutor(5) as executor:
             raster_by_year_map = process_cmip6_netcdf_to_geotiff(
                 executor, netcdf_path, target_vars,
-                local_geotiff_directory)
+                local_geotiff_path_pattern)
             for year, file_list in raster_by_year_map.items():
                 zip_path_pattern = base_path_pattern.format(
                     **{**target_vars, **{'date': year}}).replace(
@@ -116,18 +115,16 @@ def _download_and_process_file(processed_files, args):
                 if not os.path.exists(target_zip_path):
                     zip_files(file_list, local_zip_path, target_zip_path)
             LOGGER.info(f'done processing {os.path.basename(url)}')
-        hot_dir = os.path.dirname(local_zip_path)
-        LOGGER.info(f'removing directory {os.path.dirname(hot_dir)}')
+        local_hot_dir = os.path.dirname(local_geotiff_path_pattern).format(
+            **target_vars)
+        LOGGER.info(f'removing directory {local_hot_dir}')
         processed_files.add(url)
+        shutil.rmtree(local_hot_dir)
+        os.remove(netcdf_path)
         return True
     except Exception:
         LOGGER.exception(f'error on _download_and_process_file {args}')
         raise
-    finally:
-        if netcdf_path and os.path.exists(netcdf_path):
-            os.remove(netcdf_path)
-        if local_geotiff_directory and os.path.exists(local_geotiff_directory):
-            shutil.rmtree(local_geotiff_directory)
 
 
 def zip_files(file_list, local_path, target_path):
@@ -350,18 +347,18 @@ def main():
         start_time = time.time()
         with ProcessPoolExecutor(5) as global_executor:
             future_list = {
-                (global_executor.submit(
-                    _download_and_process_file, processed_files, param_and_url_arg),
-                 param_and_url_arg)
-                for param_and_url_arg in param_and_url_list[0:5]}
+                global_executor.submit(
+                    _download_and_process_file, processed_files,
+                    param_and_url_arg)
+                for param_and_url_arg in param_and_url_list[0:10]}
 
-            for future, param_and_url_arg in as_completed(future_list):
+            for future in as_completed(future_list):
                 try:
                     _ = future.result()  # This will raise an exception if the worker function failed
                 except Exception:
                     LOGGER.exception(
                         f'something failed on download and process for '
-                        f'{param_and_url_arg} but still continuing')
+                        f'{future} but still continuing')
                     #global_executor.shutdown(wait=False)
                     #raise  # Re-raise the original exception
             LOGGER.debug(f'about to quit executor')
