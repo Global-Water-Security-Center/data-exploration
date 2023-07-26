@@ -341,8 +341,7 @@ def main():
         # pr,historical,SAM0-UNICON,r1i1p1f1,http://aims3.llnl.gov/thredds/fileServer/css03_data/CMIP6/CMIP/SNU/SAM0-UNICON/historical/r1i1p1f1/day/pr/gn/v20190323/pr_day_SAM0-UNICON_historical_r1i1p1f1_gn_19000101-19001231.nc
 
         with open(args.url_list_path, 'r') as file:
-            param_and_url_list = [line.rstrip().split(',') for line in file
-                if 'pr_day_FGOALS-g3_ssp370_r3i1p1f1_gn_20600101-20601231' in line]
+            param_and_url_list = [line.rstrip().split(',') for line in file]
 
         random.seed(1)
         random.shuffle(param_and_url_list)
