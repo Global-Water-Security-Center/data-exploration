@@ -90,7 +90,7 @@ def main():
         print(variable, scenario, model, variant)
 
     # create a new figure
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(2)
     labeled_models = set()
     for (variable, scenario, model), variant_val_list in model_to_variant_data.items():
         # plot the data
@@ -105,31 +105,44 @@ def main():
             if cum_sum[-1] > 1000:
                 print(variable, scenario, model, variant, val_list)
                 raise RuntimeError()
-            ax.plot(
+            ax[0].plot(
                 dates,
                 cum_sum,
                 label=label,
                 linewidth=1,
-                color=model_to_color[model]
+                color=model_to_color[model],
+                alpha=0.5,
                 )
 
         # format the ticks
-        ax.xaxis.set_major_locator(mdates.DayLocator(interval=30))  # adjust interval for your needs
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+        ax[0].xaxis.set_major_locator(mdates.DayLocator(interval=30))  # adjust interval for your needs
+        ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+
+        # plot mean and standard deviation
+        variant_series = [list(zip(*v[1]))[1] for v in variant_val_list]
+        mean = numpy.mean(variant_series, axis=0)
+        std = numpy.std(variant_series, axis=0)
+        ax[1].plot(dates, mean, color=model_to_color[model])
+        ax[1].fill_between(dates, mean - std, mean + std, color=model_to_color[model], alpha=0.2)
 
     # rotate dates for better display
     plt.gcf().autofmt_xdate()
 
     # Add labels and title
-    plt.xlabel('Date')
-    plt.ylabel(f'{variable}')
+    ax[0].set_xlabel('Date')
+    ax[0].set_xlabel(f'{variable}')
+    ax[1].set_xlabel('Date')
+    ax[1].set_xlabel(f'{variable}')
     plt.title(f'{variable} from {args.date_range[0]}-{args.date_range[1]} at {args.point}')
 
     # Add a legend
-    handles = [mlines.Line2D([], [], color=col, label=lab) for col, lab in model_to_color.items()]
-    ax.legend(handles=handles)
+    handles = [mlines.Line2D([], [], color=color, label=model) for model, color in model_to_color.items()]
+    ax[0].legend(handles=handles)
 
+
+    plt.tight_layout()
     plt.show()
+
 
 if __name__ == '__main__':
     main()
