@@ -100,15 +100,14 @@ def main():
                 # if variant not in variant_count[model] and len(variant_count[model]) > 2:
                 #     continue
                 variant_count[model].add(variant)
-                print(file_path)
-
                 future_workers[(year, scenario, model, variant)] = executor.submit(
                     process_file, file_path, zip_path, args.point)
 
         # at this point, all tasks are complete
         model_to_variant_data = collections.defaultdict(list)
-        for (year, scenario, model, variant), future in future_workers.items():
+        for index, ((year, scenario, model, variant), future) in enumerate(future_workers.items()):
             yearly_val = future.result()
+            print(f'done with {index} of {len(future_workers)}')
             model_to_variant_data[(scenario, model, variant)].append(
                 (year, yearly_val))
         if len(model_to_variant_data) == 0:
