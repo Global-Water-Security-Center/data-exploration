@@ -68,6 +68,7 @@ def main():
         model_to_variant_data = collections.defaultdict(list)
         variant_to_model_data = collections.defaultdict(list)
         model_index = {}
+        variant_count = collections.defaultdict(int)
         for file_path in iterate_files(CACHE_DIR, year, year):
             print(file_path)
             _, _, variable, scenario, model, variant, _ = file_path.split(
@@ -88,6 +89,7 @@ def main():
                 variant_to_model_data[(variable, scenario, variant)].append(
                     (model, val_list))
                 print(variable, scenario, model, variant)
+                variant_count[model] += 1
             except Exception:
                 print(f'error processing {zip_path}, continuing')
         if len(model_to_variant_data) == 0:
@@ -112,9 +114,6 @@ def main():
             for variant, val_list in variant_val_list:
                 dates, values = zip(*val_list)
                 cum_sum = numpy.cumsum(values)
-                if cum_sum[-1] > 1000:
-                    print(variable, scenario, model, variant, val_list)
-                    raise RuntimeError()
                 ax[0].plot(
                     dates,
                     cum_sum,
@@ -148,9 +147,9 @@ def main():
         # Add labels and title
         ax[0].set_title('Group by model')
         ax[0].set_xlabel('Date')
-        ax[0].set_ylabel(f'{variable}')
+        ax[0].set_ylabel(f'{variable} (mm)')
         ax[1].set_xlabel('Date')
-        ax[1].set_ylabel(f'{variable}')
+        ax[1].set_ylabel(f'{variable} (mm)')
         plt.title(f'{variable} from {year}/{scenario_to_process} at {args.point}')
 
         # Add a legend
@@ -158,7 +157,7 @@ def main():
             [], [],
             color=color[model_index[model]],
             linestyle=linestyles[model_index[model]],
-            label=f'{model} ({len(variant_val_list)})')
+            label=f'{model} ({variant_count[model]})')
             for model in model_index]
         ax[0].legend(handles=handles)
 
