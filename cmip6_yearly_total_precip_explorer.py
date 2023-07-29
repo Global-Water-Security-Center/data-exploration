@@ -1,7 +1,6 @@
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import argparse
 import collections
-import datetime
 import os
 import shutil
 import zipfile
@@ -39,7 +38,6 @@ def unzip_and_sum_yearly_pr(zip_filepath, point):
                 full_path = os.path.join(LOCAL_WORKSPACE, filename)
                 running_val += get_val(full_path, point)*86400  # convert to mm
                 os.remove(full_path)
-                print(f'done with {full_path}')
     return running_val
 
 
@@ -55,14 +53,21 @@ def get_val(file_path, point):
 
 def process_file(file_path, zip_path, point):
     print(f'processing {zip_path}')
-    if not os.path.exists(zip_path):
-        shutil.copy(file_path, zip_path)
-    try:
-        yearly_val = unzip_and_sum_yearly_pr(zip_path, [float(v) for v in point])
-        print(f'done with {zip_path}')
-        return yearly_val
-    except Exception:
-        print(f'error processing {zip_path}, continuing')
+    tries = 0
+    while True:
+        if not os.path.exists(zip_path):
+            shutil.copy(file_path, zip_path)
+        try:
+            yearly_val = unzip_and_sum_yearly_pr(zip_path, [float(v) for v in point])
+            os.remove(zip_path)
+            print(f'done with {zip_path}')
+            return yearly_val
+        except Exception:
+            if tries == 0:
+                print(f'error processing {zip_path}, continuing')
+                os.remove(zip_path)
+                tries += 1
+            return 0.0
 
 
 def main():
@@ -73,7 +78,7 @@ def main():
 
     variable_to_process = 'pr'
     for scenario_to_process in ['historical', 'ssp245', 'ssp370']:
-        with ProcessPoolExecutor(24*2) as executor:
+        with ThreadPoolExecutor(4) as executor:
             model_index = {}
             #models_to_run = []
             variant_count = collections.defaultdict(set)
