@@ -106,6 +106,9 @@ def main():
                 if len(src_array.dims) == 2:
                     src_array = src_array.expand_dims('band')
 
+                if args.target_nodata is not None:
+                    src_array = src_array.fillna(args.target_nodata)
+
                 with rasterio.open(
                     target_path,
                     mode="w",
@@ -114,7 +117,7 @@ def main():
                     width=len(coord_list[0]),
                     count=n_bands,
                     dtype=numpy.float32,
-                    nodata=None,
+                    nodata=args.target_nodata,
                     crs=crs_string,
                     transform=transform,
                     **{
