@@ -79,9 +79,7 @@ def _download_and_process_file(args):
                 target_zip_path = os.path.join(LOCAL_CACHE_DIR, zip_path_pattern)
                 zip_files(file_list, LOCAL_CACHE_DIR, target_zip_path)
             LOGGER.info(f'done processing {os.path.basename(url)}')
-        LOCAL_CACHE_DIR = os.path.dirname(local_zip_path)
         LOGGER.info(f'removing directory {os.path.dirname(LOCAL_CACHE_DIR)}')
-        shutil.rmtree(os.path.dirname(local_zip_path))
         os.remove(netcdf_path)
         return True
     except Exception:

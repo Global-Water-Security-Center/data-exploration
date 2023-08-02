@@ -1,7 +1,13 @@
 """See `python scriptname.py --help"""
 import glob
 import os
+import tempfile
+import shutil
+import uuid
 
+from ecoshard import geoprocessing
+from osgeo import gdal
+from osgeo import osr
 from pathvalidate import sanitize_filename
 from rasterio.transform import Affine
 import argparse
@@ -16,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser(description=(
         'Convert netcat files to geotiff'))
     parser.add_argument(
-        'netcat_path', type=str,
+        'netcdf_path', type=str,
         help='Path or pattern to netcat files to convert')
     parser.add_argument(
         'x_y_fields', nargs=2,
@@ -30,7 +36,7 @@ def main():
     args = parser.parse_args()
     _ = parser.parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
-    for nc_path in glob.glob(args.netcat_path):
+    for nc_path in glob.glob(args.netcdf_path):
         print(f'processing {nc_path}')
         decode_times = True
         while True:
@@ -93,9 +99,13 @@ def main():
                 target_dir = os.path.join(args.out_dir, variable_name)
                 os.makedirs(target_dir, exist_ok=True)
                 filename = f"{basename}_{variable_name}{combination_suffix}.tif"
-                print(filename)
                 target_path = os.path.join(target_dir, sanitize_filename(
                     filename, replacement_text="_"))
+                crs_string = "+proj=latlong"
+                src_array = local_dataset[variable_name]
+                if len(src_array.dims) == 2:
+                    src_array = src_array.expand_dims('band')
+
                 with rasterio.open(
                     target_path,
                     mode="w",
@@ -105,19 +115,65 @@ def main():
                     count=n_bands,
                     dtype=numpy.float32,
                     nodata=None,
-                    crs="+proj=latlong",
+                    crs=crs_string,
                     transform=transform,
                     **{
                         'tiled': 'YES',
                         'COMPRESS': 'LZW',
                         'PREDICTOR': 2}) as new_dataset:
                     print(f'writing {target_path}')
-                    local_variable_ds = local_dataset[variable_name]
-                    if len(local_variable_ds.dims) == 2:
-                        new_dataset.write(
-                            local_variable_ds.expand_dims('band'))
-                    else:
-                        new_dataset.write(local_variable_ds)
+                    new_dataset.write(src_array)
+
+                warp_to_180(target_path)
+
+
+def warp_to_180(local_raster_path):
+    local_raster_info = geoprocessing.get_raster_info(local_raster_path)
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(local_raster_info['projection_wkt'])
+    proj4_str = srs.ExportToProj4()
+    vrt_dir = None
+    if ('+proj=longlat' in proj4_str and
+            local_raster_info['bounding_box'][2] > 180):
+        vrt_dir = tempfile.mkdtemp(dir=os.path.dirname(local_raster_path))
+        base_raster_path = copy_to_unique_file(local_raster_path, vrt_dir)
+        local_vrt_path = 'test.vrt' # os.path.join(vrt_dir, 'buffered.vrt')
+        proj4_str += ' +lon_wrap=180'
+        bb = local_raster_info['bounding_box']
+        vrt_pixel_size = local_raster_info['pixel_size']
+        buffered_bounds = [
+            _op(bb[i], bb[j])+offset*2 for _op, i, j, offset in [
+                (min, 0, 2, -abs(vrt_pixel_size[0])),
+                (max, 1, 3, abs(vrt_pixel_size[1])),
+                (max, 0, 2, abs(vrt_pixel_size[0])),
+                (min, 1, 3, -abs(vrt_pixel_size[1]))]]
+        local_raster = gdal.OpenEx(base_raster_path, gdal.OF_RASTER)
+        gdal.Translate(
+            local_vrt_path, local_raster, format='VRT',
+            outputBounds=buffered_bounds)
+        local_raster = None
+        base_raster_path = local_vrt_path
+
+        target_bb = local_raster_info['bounding_box'].copy()
+        if target_bb[2] > 180:
+            target_bb[2] -= 180
+            target_bb[0] -= 180
+
+        geoprocessing.warp_raster(
+            local_vrt_path, local_raster_info['pixel_size'], local_raster_path,
+            'near',
+            base_projection_wkt=proj4_str,
+            target_projection_wkt='+proj=longlat',
+            target_bb=target_bb)
+        shutil.rmtree(vrt_dir)
+
+
+def copy_to_unique_file(src_path, target_dir):
+    ext = os.path.splitext(src_path)[1]
+    unique_filename = str(uuid.uuid4()) + ext
+    dst_path = os.path.join(target_dir, unique_filename)
+    shutil.copy(src_path, dst_path)
+    return dst_path
 
 
 if __name__ == '__main__':
