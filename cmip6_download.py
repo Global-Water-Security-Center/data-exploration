@@ -1,31 +1,33 @@
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
-import zipfile
+from concurrent.futures import ProcessPoolExecutor
 import argparse
-import random
-import logging
 import collections
+import logging
+import multiprocessing
 import os
+import pickle
+import random
 import requests
 import shutil
 import sys
-from functools import partial
-from threading import Lock
 import time
+import zipfile
 
-from tenacity import retry, stop_after_attempt, wait_random_exponential
 from rasterio.transform import Affine
+from scipy.interpolate import griddata
 import numpy
+import pandas
 import rasterio
 import xarray
-import pandas
 
 BASE_URL = 'https://esgf-node.llnl.gov/esg-search/search'
 BASE_SEARCH_URL = 'https://esgf-node.llnl.gov/search_files'
 VARIANT_SUFFIX = 'i1p1f1'
 LOCAL_CACHE_DIR = '_cmip6_local_cache'
-os.makedirs(LOCAL_CACHE_DIR, exist_ok=True)
+HOT_DIR = 'D:/hot_cache'
+PROCESSED_FILES_PICKLE = os.path.join(HOT_DIR, 'processed_files.pkl')
+for dir_path in [LOCAL_CACHE_DIR, HOT_DIR]:
+    os.makedirs(dir_path, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +38,29 @@ logging.basicConfig(
 LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
+
+
+class ProcessedFiles:
+    def __init__(self, pickle_path, manager):
+        self.lock = manager.Lock()
+        self.pickle_path = pickle_path
+        if os.path.exists(self.pickle_path):
+            LOGGER.debug(f'loading from {self.pickle_path}')
+            with open(self.pickle_path, 'rb') as f:
+                self.set = pickle.load(f)
+                LOGGER.debug(self.set)
+        else:
+            self.set = set()
+
+    def add(self, file):
+        with self.lock:
+            self.set.add(file)
+            with open(self.pickle_path, 'wb') as f:
+                pickle.dump(self.set, f)
+
+    def __contains__(self, file):
+        with self.lock:
+            return file in self.set
 
 
 def handle_retry_error(retry_state):
@@ -51,40 +76,59 @@ def handle_retry_error(retry_state):
             str(last_exception.statistics).replace('\n', '<enter>')+"\n")
 
 
-def _download_and_process_file(args):
+def _download_and_process_file(processed_files, args):
     try:
+        netcdf_path = None
+        local_hot_dir = None
         LOGGER.info(f'********* processing {args}')
         variable, scenario, model, variant, url = args
-        netcdf_path = _download_file(LOCAL_CACHE_DIR, url)
-        base_path_pattern = (
-            r'cmip6/{variable}/{scenario}/{model}/{variant}/'
-            r'cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif')
+        LOGGER.debug(f'checking {url}')
+        if url in processed_files:
+            return True
+        netcdf_path = _download_file(HOT_DIR, url)
+        if not os.path.exists(netcdf_path):
+            raise ValueError(
+                f'expected a file at {netcdf_path} but nothing was there downloaded from {url}')
         target_vars = {
             'variable': variable,
             'scenario': scenario,
             'model': model,
             'variant': variant,
         }
+        base_path_pattern = (
+            r'cmip6/{variable}/{scenario}/{model}/{variant}/'
+            r'cmip6-{variable}-{scenario}-{model}-{variant}-{date}.tif')
+        local_geotiff_path_pattern = os.path.join(
+            HOT_DIR, base_path_pattern)
         LOGGER.info(f'process {os.path.basename(url)}')
 
         with ProcessPoolExecutor(5) as executor:
             raster_by_year_map = process_cmip6_netcdf_to_geotiff(
                 executor, netcdf_path, target_vars,
-                os.path.join(LOCAL_CACHE_DIR, base_path_pattern))
-
-            for year, file_list in raster_by_year_map.items():
-                zip_path_pattern = base_path_pattern.format(
-                    **{**target_vars, **{'date': year}}).replace(
-                    '.tif', '.zip')
-                target_zip_path = os.path.join(LOCAL_CACHE_DIR, zip_path_pattern)
-                zip_files(file_list, LOCAL_CACHE_DIR, target_zip_path)
-            LOGGER.info(f'done processing {os.path.basename(url)}')
-        LOGGER.info(f'removing directory {os.path.dirname(LOCAL_CACHE_DIR)}')
-        os.remove(netcdf_path)
+                local_geotiff_path_pattern)
+        for year, file_list in raster_by_year_map.items():
+            zip_path_pattern = base_path_pattern.format(
+                **{**target_vars, **{'date': year}}).replace(
+                '.tif', '.zip')
+            local_zip_path = os.path.join(HOT_DIR, zip_path_pattern)
+            target_zip_path = os.path.join(
+                LOCAL_CACHE_DIR, zip_path_pattern)
+            if not os.path.exists(target_zip_path):
+                zip_files(file_list, local_zip_path, target_zip_path)
+        LOGGER.info(f'done processing {os.path.basename(url)}')
+        local_hot_dir = os.path.dirname(local_geotiff_path_pattern).format(
+            **target_vars)
+        LOGGER.info(f'removing directory {local_hot_dir}')
+        processed_files.add(url)
         return True
     except Exception:
         LOGGER.exception(f'error on _download_and_process_file {args}')
         raise
+    finally:
+        if local_hot_dir and os.path.exists(local_hot_dir):
+            shutil.rmtree(local_hot_dir)
+        if netcdf_path and os.path.exists(netcdf_path):
+            os.remove(netcdf_path)
 
 
 def zip_files(file_list, local_path, target_path):
@@ -93,11 +137,9 @@ def zip_files(file_list, local_path, target_path):
             zipf.write(file_path, arcname=os.path.basename(file_path))
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
     shutil.move(local_path, target_path)
+    LOGGER.info(f'zipped to {target_path}')
 
 
-@retry(stop=stop_after_attempt(5),
-       wait=wait_random_exponential(multiplier=1, min=1, max=10),
-       retry_error_callback=handle_retry_error)
 def _download_file(target_dir, url):
     try:
         stream_path = os.path.join(
@@ -111,9 +153,10 @@ def _download_file(target_dir, url):
         LOGGER.info(f'downloading {url} to {target_path}')
 
         # Get the total file size
-        file_stream_response = requests.get(url, stream=True)
-        file_size = int(file_stream_response.headers.get(
-            'Content-Length', 0))
+        # LOGGER.debug(f'get file size for {url}')
+        file_stream_response = requests.get(url, stream=True, timeout=3)
+        # file_size = int(file_stream_response.headers.get(
+        #     'Content-Length', 0))
 
         # Download the file with progress
         progress = 0
@@ -127,8 +170,7 @@ def _download_file(target_dir, url):
                 progress += len(chunk)
                 if time.time()-last_update > 2:
                     print(
-                        f'Downloaded {progress:{len(str(file_size))}d} of {file_size} bytes '
-                        f'({100. * progress / file_size:5.1f}%) of '
+                        f'Downloaded downloaded {progress} bytes of '
                         f'{stream_path} {url}')
                     last_update = time.time()
             file.flush()
@@ -138,7 +180,12 @@ def _download_file(target_dir, url):
     except Exception:
         LOGGER.exception(
             f'failed to download {url} to {target_dir}, possibly retrying')
+        if os.path.exists(target_path):
+            os.remove(target_path)
         raise
+    finally:
+        if os.path.exists(stream_path):
+            os.remove(stream_path)
 
 
 def process_cmip6_netcdf_to_geotiff(
@@ -163,6 +210,7 @@ def process_cmip6_netcdf_to_geotiff(
         future_list = []
         raster_by_year = collections.defaultdict(list)
         previous_year = None
+        LOGGER.debug(f'processing {netcdf_path} for time {time_var}')
         for i, date in enumerate(time_var):
             daily_data = dataset[variable].isel(time=i)
             date_str = None
@@ -183,11 +231,20 @@ def process_cmip6_netcdf_to_geotiff(
             if date_str is None:
                 raise ValueError(f'could not convert {date}')
             year = date_str[0:4]
+
+            target_path = target_path_pattern.format(
+                **{**target_vars, **{'date': date_str}})
+            raster_by_year[year].append(target_path)
+            if os.path.exists(target_path):
+                LOGGER.debug(f'{target_path} exists no need to re-make')
+                continue
+
             if previous_year != year:
                 LOGGER.info(f'iterating on {year}: {netcdf_path}')
                 previous_year = year
             data_values = daily_data.values[numpy.newaxis, ...]
             coord_list = []
+            coord_id_list = []
             res_list = []
             for coord_id, field_options in zip(['x', 'y'], [
                     ['longitude', 'long', 'lon'],
@@ -199,19 +256,35 @@ def process_cmip6_netcdf_to_geotiff(
                             (coord_array[-1] - coord_array[0]) /
                             len(coord_array)))
                         coord_list.append(coord_array)
+                        coord_id_list.append(field_id)
+                        break
                     except KeyError:
                         pass
             if len(coord_list) != 2:
                 raise ValueError(
                     f'coord list not fully defined for {netcdf_path}')
+            if len(daily_data.values.shape) == 1:
+                # this is 1D data, need to re-create 2D grid
+                lon = coord_list[0].values
+                lat = coord_list[1].values
+                # Define the grid
+                grid_size = 0.25
+                n_lat = int(numpy.round((lat.max()-lat.min())/grid_size))
+                n_lon = int(numpy.round((lon.max()-lon.min())/grid_size))
+                lats = numpy.linspace(lat.min(), lat.max(), n_lat)
+                lons = numpy.linspace(lon.min(), lon.max(), n_lon)
+                lon_grid, lat_grid = numpy.meshgrid(lons, lats)
+
+                res_list = [grid_size, grid_size]
+                coord_list = [lons, lats]
+
+                # Perform the 2D interpolation
+                data_values = griddata(
+                    (lon, lat), daily_data, (lon_grid, lat_grid),
+                    method='linear')
+                data_values = data_values[numpy.newaxis, ...]
             transform = Affine.translation(
                 *[a[0] for a in coord_list]) * Affine.scale(*res_list)
-
-            target_path = target_path_pattern.format(
-                **{**target_vars, **{'date': date_str}})
-            raster_by_year[year].append(target_path)
-            if os.path.exists(target_path):
-                continue
             future = executor.submit(
                 _write_raster, data_values, coord_list, transform, target_path)
             future_list.append(future)
@@ -227,6 +300,7 @@ def process_cmip6_netcdf_to_geotiff(
         return raster_by_year
     except Exception:
         LOGGER.exception(f'error on {netcdf_path}')
+        raise
 
 
 def _write_raster(data_values, coord_list, transform, target_path):
@@ -249,6 +323,7 @@ def _write_raster(data_values, coord_list, transform, target_path):
                 'COMPRESS': 'LZW',
                 'PREDICTOR': 2}) as new_dataset:
             new_dataset.write(data_values)
+        LOGGER.debug(f'wrote the file {target_path}')
         return target_path
     except Exception:
         LOGGER.exception(f'error on _write_raster for {target_path}')
@@ -260,32 +335,38 @@ def main():
         'Process CMIP6 raw urls to geotiff.'))
     parser.add_argument('url_list_path', help='url list')
     args = parser.parse_args()
+    with multiprocessing.Manager() as manager:
+        processed_files = ProcessedFiles(PROCESSED_FILES_PICKLE, manager)
 
-    # pr,historical,SAM0-UNICON,r1i1p1f1,http://aims3.llnl.gov/thredds/fileServer/css03_data/CMIP6/CMIP/SNU/SAM0-UNICON/historical/r1i1p1f1/day/pr/gn/v20190323/pr_day_SAM0-UNICON_historical_r1i1p1f1_gn_19000101-19001231.nc
+        # pr,historical,SAM0-UNICON,r1i1p1f1,http://aims3.llnl.gov/thredds/fileServer/css03_data/CMIP6/CMIP/SNU/SAM0-UNICON/historical/r1i1p1f1/day/pr/gn/v20190323/pr_day_SAM0-UNICON_historical_r1i1p1f1_gn_19000101-19001231.nc
 
-    with open(args.url_list_path, 'r') as file:
-        param_and_url_list = [line.rstrip().split(',') for line in file]
+        with open(args.url_list_path, 'r') as file:
+            param_and_url_list = [line.rstrip().split(',') for line in file]
 
-    random.seed(1)
-    random.shuffle(param_and_url_list)
-    # for index, val in enumerate(param_and_url_list):
-    #     print(f'{index}: {val}')
-    # return
-    #param_and_url_list = [param_and_url_list[2]]
-    start_time = time.time()
-    with ProcessPoolExecutor(5) as global_executor:
-        future_list = {
-            global_executor.submit(
-                _download_and_process_file, param_and_url_arg)
-            for param_and_url_arg in param_and_url_list}
+        random.seed(1)
+        random.shuffle(param_and_url_list)
+        # for index, val in enumerate(param_and_url_list):
+        #     print(f'{index}: {val}')
+        # return
+        #param_and_url_list = [param_and_url_list[2]]
+        start_time = time.time()
+        with ProcessPoolExecutor(50) as global_executor:
+            future_list = {
+                global_executor.submit(
+                    _download_and_process_file, processed_files,
+                    param_and_url_arg)
+                for param_and_url_arg in param_and_url_list}
 
-        for future in as_completed(future_list):
-            try:
-                _ = future.result()  # This will raise an exception if the worker function failed
-            except Exception:
-                LOGGER.exception('something failed on download and process')
-                global_executor.shutdown(wait=False)
-                raise  # Re-raise the original exception
+            for future in as_completed(future_list):
+                try:
+                    _ = future.result()  # This will raise an exception if the worker function failed
+                except Exception:
+                    LOGGER.exception(
+                        f'something failed on download and process for '
+                        f'{future} but still continuing')
+                    #global_executor.shutdown(wait=False)
+                    #raise  # Re-raise the original exception
+            LOGGER.debug(f'about to quit executor')
     LOGGER.info(f'all done took {time.time()-start_time:.2f}s')
 
 if __name__ == '__main__':
