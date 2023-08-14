@@ -14,3 +14,4 @@ psutil
 numexpr
 rtree
 pathvalidate
+netcdf4
