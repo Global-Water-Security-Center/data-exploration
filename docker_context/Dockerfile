@@ -1,4 +1,4 @@
-# Container for STAC API manager
+# Container for running GWSC scripts
 FROM ubuntu:jammy
 
 RUN apt-get update -qq && \
@@ -17,14 +17,13 @@ RUN pip install earthengine-api
 
 SHELL ["/bin/bash", "-c"]
 
-RUN mkdir -p /usr/local/gwsc_app
-WORKDIR /usr/local/gwsc_app
-COPY requirements.txt /usr/local/gwsc_app/
-RUN pip3 install -r requirements.txt
+RUN mkdir -p /usr/local/gwsc_app_install
+WORKDIR /usr/local/gwsc_app_install
+COPY requirements.txt /usr/local/gwsc_app_install/
+RUN pip3 install -r /usr/local/gwsc_app_install/requirements.txt
 RUN git clone https://github.com/springinnovate/ecoshard.git
-WORKDIR /usr/local/gwsc_app/ecoshard
+WORKDIR /usr/local/gwsc_app_install/ecoshard
 RUN python3 setup.py install
 WORKDIR /usr/local/gwsc_app
-
 
 CMD ["python3"]
