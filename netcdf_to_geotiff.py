@@ -80,7 +80,8 @@ def main():
             combinations = [None]
 
         transform = Affine.translation(
-            *[a[0] for a in coord_list]) * Affine.scale(*res_list)
+            coord_list[0][0] + res_list[0]/2,
+            coord_list[1][0] + res_list[1]/2) * Affine.scale(*res_list)
 
         basename = os.path.basename(os.path.splitext(nc_path)[0])
 
@@ -104,7 +105,7 @@ def main():
                 target_path = os.path.join(target_dir, sanitize_filename(
                     filename, replacement_text="_"))
                 # assume latlng
-                crs_string = "+proj=latlong"
+                crs_string = "+proj=latlong +datum=WGS84"
                 src_array = local_dataset[variable_name]
                 if len(src_array.dims) == 2:
                     src_array = src_array.expand_dims('band')
