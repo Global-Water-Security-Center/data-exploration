@@ -149,8 +149,9 @@ def warp_to_180(local_raster_path):
         proj4_str += ' +lon_wrap=180'
         bb = local_raster_info['bounding_box']
         vrt_pixel_size = local_raster_info['pixel_size']
+        print(bb)
         buffered_bounds = [
-            _op(bb[i], bb[j])+offset*2 for _op, i, j, offset in [
+            _op(bb[i], bb[j])+offset for _op, i, j, offset in [
                 (min, 0, 2, -abs(vrt_pixel_size[0])),
                 (max, 1, 3, abs(vrt_pixel_size[1])),
                 (max, 0, 2, abs(vrt_pixel_size[0])),
@@ -167,11 +168,18 @@ def warp_to_180(local_raster_path):
             target_bb[2] -= 180
             target_bb[0] -= 180
 
+        if target_bb[1] < -90:
+            target_bb[1] = -90
+        if target_bb[3] > 90:
+            target_bb[3] = 90
+        print(buffered_bounds)
+        print(vrt_pixel_size)
+
         geoprocessing.warp_raster(
             vrt_local, local_raster_info['pixel_size'], local_raster_path,
             'near',
             base_projection_wkt=proj4_str,
-            target_projection_wkt='+proj=longlat',
+            target_projection_wkt='+datum=WGS84 +proj=longlat',
             target_bb=target_bb)
         shutil.rmtree(vrt_dir)
 
