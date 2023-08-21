@@ -172,7 +172,7 @@ def warp_to_180(local_raster_path):
             target_bb[1] = -90
         if target_bb[3] > 90:
             target_bb[3] = 90
-        print(buffered_bounds)
+        print(target_bb)
         print(vrt_pixel_size)
 
         geoprocessing.warp_raster(
