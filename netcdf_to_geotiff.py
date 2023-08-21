@@ -20,13 +20,13 @@ import xarray
 def main():
     """Entrypoint."""
     parser = argparse.ArgumentParser(description=(
-        'Convert netcat files to geotiff'))
+        'Convert netcdf files to geotiff'))
     parser.add_argument(
         'netcdf_path', type=str,
-        help='Path or pattern to netcat files to convert')
+        help='Path or pattern to netcdf files to convert')
     parser.add_argument(
         'x_y_fields', nargs=2,
-        help='the names of the x and y coordinates in the netcat file')
+        help='the names of the x and y coordinates in the netcdf file')
     parser.add_argument('--band_field', help=(
         'if defined, will use this coordinate as the band field'))
     parser.add_argument(
@@ -83,6 +83,7 @@ def main():
 
         basename = os.path.basename(os.path.splitext(nc_path)[0])
 
+        # iterate through all the variables in the dataset
         for variable_name in dataset.keys():
             combination_suffix = ''
             local_dataset = dataset
@@ -101,6 +102,7 @@ def main():
                 filename = f"{basename}_{variable_name}{combination_suffix}.tif"
                 target_path = os.path.join(target_dir, sanitize_filename(
                     filename, replacement_text="_"))
+                # assume latlng
                 crs_string = "+proj=latlong"
                 src_array = local_dataset[variable_name]
                 if len(src_array.dims) == 2:
@@ -131,6 +133,7 @@ def main():
 
 
 def warp_to_180(local_raster_path):
+    # if the netcdf file extends beyond 180 longitude, wrap it back to -180
     local_raster_info = geoprocessing.get_raster_info(local_raster_path)
     srs = osr.SpatialReference()
     srs.ImportFromWkt(local_raster_info['projection_wkt'])
@@ -140,8 +143,8 @@ def warp_to_180(local_raster_path):
             local_raster_info['bounding_box'][2] > 180):
         vrt_dir = tempfile.mkdtemp(dir=os.path.dirname(local_raster_path))
         base_raster_path = copy_to_unique_file(local_raster_path, vrt_dir)
-        local_vrt_path = 'test.vrt' # os.path.join(vrt_dir, 'buffered.vrt')
-        proj4_str += ' +lon_wrap=180'
+        os.path.join(vrt_dir, 'buffered.vrt')
+        proj4_str += '+lon_wrap=180'
         bb = local_raster_info['bounding_box']
         vrt_pixel_size = local_raster_info['pixel_size']
         buffered_bounds = [
@@ -152,10 +155,10 @@ def warp_to_180(local_raster_path):
                 (min, 1, 3, -abs(vrt_pixel_size[1]))]]
         local_raster = gdal.OpenEx(base_raster_path, gdal.OF_RASTER)
         gdal.Translate(
-            local_vrt_path, local_raster, format='VRT',
+            vrt_dir, local_raster, format='VRT',
             outputBounds=buffered_bounds)
         local_raster = None
-        base_raster_path = local_vrt_path
+        base_raster_path = vrt_dir
 
         target_bb = local_raster_info['bounding_box'].copy()
         if target_bb[2] > 180:
@@ -163,7 +166,7 @@ def warp_to_180(local_raster_path):
             target_bb[0] -= 180
 
         geoprocessing.warp_raster(
-            local_vrt_path, local_raster_info['pixel_size'], local_raster_path,
+            vrt_dir, local_raster_info['pixel_size'], local_raster_path,
             'near',
             base_projection_wkt=proj4_str,
             target_projection_wkt='+proj=longlat',
