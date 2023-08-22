@@ -1,1 +1,1 @@
-docker run -it -v "%CD%":/usr/local/gwsc_app therealspring/gwsc-executor:latest python3 %*
+docker container prune -f && docker run -it -v "%CD%":/usr/local/gwsc_app therealspring/gwsc-executor:latest python3 %*
