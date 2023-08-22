@@ -157,6 +157,7 @@ def warp_to_180(local_raster_path):
                 (max, 1, 3, abs(vrt_pixel_size[1])),
                 (max, 0, 2, abs(vrt_pixel_size[0])),
                 (min, 1, 3, -abs(vrt_pixel_size[1]))]]
+        # some of the netcdfs go off the top and bottom
         if buffered_bounds[3] < -90:
             buffered_bounds[3] = -90
         if buffered_bounds[1] > 90:
