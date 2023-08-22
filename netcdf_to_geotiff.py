@@ -103,7 +103,8 @@ def main():
                     combination_suffix = ''
                 target_dir = os.path.join(args.out_dir, variable_name)
                 os.makedirs(target_dir, exist_ok=True)
-                filename = f"{basename}_{variable_name}{combination_suffix}.tif"
+                filename = (
+                    f"{basename}_{variable_name}{combination_suffix}.tif")
                 target_path = os.path.join(target_dir, sanitize_filename(
                     filename, replacement_text="_"))
                 # assume latlng
@@ -147,7 +148,9 @@ def warp_to_180(local_raster_path):
             local_raster_info['bounding_box'][2] > 180):
         vrt_dir = tempfile.mkdtemp(dir=os.path.dirname(local_raster_path))
         base_raster_path = copy_to_unique_file(local_raster_path, vrt_dir)
-        vrt_local = os.path.join(vrt_dir, f"{os.path.basename(os.path.splitext(local_raster_path)[0])}_buffered.vrt")
+        vrt_local = os.path.join(
+            vrt_dir, f"""{os.path.basename(
+                os.path.splitext(local_raster_path)[0])}_buffered.vrt""")
         proj4_str += ' +lon_wrap=180'
         bb = local_raster_info['bounding_box']
         vrt_pixel_size = local_raster_info['pixel_size']
