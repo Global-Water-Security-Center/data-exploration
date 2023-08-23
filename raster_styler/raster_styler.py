@@ -1,13 +1,14 @@
-from rasterio import features
 from affine import Affine
-import argparse
-from osgeo import gdal
-import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
-import geopandas as gpd
-import numpy as np
+from osgeo import gdal
+from rasterio import features
 from scipy.ndimage import zoom
 from shapely.geometry import box
+import argparse
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 def main():
     parser = argparse.ArgumentParser(description=('Style a raster.'))
@@ -51,15 +52,9 @@ def main():
     colors = [(1, 0, 0), (1, 1, 0), (0, 1, 0)]  # R -> Y -> G
     cmap_name = 'custom1'
     cm = LinearSegmentedColormap.from_list(cmap_name, colors, N=100)
-
-
-    # Load the shapefile
     gdf = gpd.read_file(args.boundary_vector_path)
-
-    # Filter the shapefile by feature ID values (replace with the desired ID values)
     filtered_gdf = gdf[gdf['sov_a3'].isin(['IND'])]
 
-    # Create the bounding box of the raster unioned with the filtered shapefile
     gt = ds.GetGeoTransform()
     gt = list(gt)
     gt[1] /= zoom_factor
@@ -109,12 +104,8 @@ def main():
     ax.imshow(
         styled_array, extent=[min_x, max_x, min_y, max_y], origin='upper',
         cmap=cm)
-
-    #ax.imshow(mask, extent=raster_extent, origin='upper', cmap=cm)
-    # plot the clipped `styled_array` here
-
     # Plot the bounding box of the union
-    gpd.GeoSeries(union_bbox).boundary.plot(ax=ax, color='blue', linewidth=2)
+    #gpd.GeoSeries(union_bbox).boundary.plot(ax=ax, color='blue', linewidth=2)
 
     # Plot the polygon boundaries of the filtered shapefile on top of the raster
     filtered_gdf.boundary.plot(ax=ax, color='black', linewidth=1)
