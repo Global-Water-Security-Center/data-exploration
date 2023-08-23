@@ -1,3 +1,4 @@
+import rasterio
 from affine import Affine
 from matplotlib.colors import LinearSegmentedColormap
 from osgeo import gdal
@@ -9,6 +10,20 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 
+import richdem as rd
+
+
+def compute_hillshade(dem_array, resolution):
+    dem = rd.rdarray(dem_array, no_data=-9999)
+    hillshade_val = rd.TerrainAttribute(dem, attrib='hillshade')
+    return hillshade_val
+
+# Your DEM resampling code...
+
+
+
+DEM_PATH = r'D:\local_global_swy_data\global_dem_3s_md5_22d0c3809af491fa09d03002bdf09748\dem.vrt'
+ZOOM_FACTOR = 4  # Replace with the desired zoom factor
 
 def main():
     parser = argparse.ArgumentParser(description=('Style a raster.'))
@@ -37,9 +52,8 @@ def main():
     norm_array = (masked_array - array_min) / (array_max - array_min)
 
     # Increase the resolution of the raster with bilinear filtering
-    zoom_factor = 4  # Replace with the desired zoom factor
-    resampled_array = zoom(norm_array, zoom_factor, order=1)
-    resampled_nodata_mask = zoom(nodata_mask, zoom_factor, order=0)
+    resampled_array = zoom(norm_array, ZOOM_FACTOR, order=1)
+    resampled_nodata_mask = zoom(nodata_mask, ZOOM_FACTOR, order=0)
     print(norm_array.shape)
     print(resampled_array.shape)
 
@@ -57,13 +71,13 @@ def main():
 
     gt = ds.GetGeoTransform()
     gt = list(gt)
-    gt[1] /= zoom_factor
-    gt[5] /= zoom_factor
+    gt[1] /= ZOOM_FACTOR
+    gt[5] /= ZOOM_FACTOR
     print(gt)
     raster_extent = [
         gt[0],
-        gt[0] + gt[1] * ds.RasterXSize * zoom_factor,
-        gt[3] + gt[5] * ds.RasterYSize * zoom_factor,
+        gt[0] + gt[1] * ds.RasterXSize * ZOOM_FACTOR,
+        gt[3] + gt[5] * ds.RasterYSize * ZOOM_FACTOR,
         gt[3]]
     raster_bbox = box(*[raster_extent[i] for i in (0, 2, 1, 3)])
     union_bbox = raster_bbox.intersection(filtered_gdf.unary_union.envelope)
@@ -84,12 +98,9 @@ def main():
     # Define the transformation between pixel coordinates and geospatial coordinates.
     print(gt)
     transform = Affine(
-        gt[1], gt[2], gt[0]+gt[1]/2/zoom_factor,
-        gt[4], gt[5], gt[3]+gt[5]/2/zoom_factor)
+        gt[1], gt[2], gt[0]+gt[1]/2/ZOOM_FACTOR,
+        gt[4], gt[5], gt[3]+gt[5]/2/ZOOM_FACTOR)
     print(transform)
-    intersection = gpd.overlay(filtered_gdf, gpd.GeoDataFrame(geometry=[raster_bbox], crs=filtered_gdf.crs))
-    print("Intersection area:", intersection.area.sum())
-
     mask = features.rasterize(
         shapes=((geom, 1) for geom in filtered_gdf.geometry),
         out_shape=resampled_array.shape, transform=transform, dtype=np.uint8,
@@ -98,6 +109,33 @@ def main():
     clipped_mask = mask[int(ul_y):int(lr_y), int(ul_x):int(lr_x)]
     styled_array = cm(clipped_resampled_array)
     styled_array[clipped_mask == 0] = no_data_color
+
+
+    with rasterio.open(DEM_PATH) as src:
+        # Resample DEM to match resampled_array resolution
+        dem_data = src.read(
+            out_shape=(
+                src.count,
+                int(src.height * ZOOM_FACTOR),
+                int(src.width * ZOOM_FACTOR)
+            ),
+            resampling=rasterio.enums.Resampling.bilinear
+        )
+        # Update the transform
+        transform_dem = src.transform * src.transform.scale(
+            (src.width / dem_data.shape[-1]),
+            (src.height / dem_data.shape[-2])
+        )
+        dem = dem_data[0]
+
+    hs_array = compute_hillshade(dem, resolution=gt[1])
+    ul_x_dem, ul_y_dem = (min_x - transform_dem.c) / transform_dem.a, (max_y - transform_dem.f) / transform_dem.e
+    lr_x_dem, lr_y_dem = (max_x - transform_dem.c) / transform_dem.a, (min_y - transform_dem.f) / transform_dem.e
+    clipped_hs_array = hs_array[int(ul_y_dem):int(lr_y_dem), int(ul_x_dem):int(lr_x_dem)]
+
+
+
+
 
     # Plot the colored raster
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -111,6 +149,8 @@ def main():
     filtered_gdf.boundary.plot(ax=ax, color='black', linewidth=1)
 
     # Save the figure as a PNG image
+    ax.axis('off')
+    plt.tight_layout()
     plt.savefig('styled_raster_with_filtered_boundaries.png')
 
 
