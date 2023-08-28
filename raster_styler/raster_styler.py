@@ -238,6 +238,8 @@ def main():
     basename = os.path.basename(os.path.splitext(args.raster_path)[0])
     if args.dem_path is not None:
         basename += '_hillshade'
+    if args.where_filter is not None:
+        basename += f'_{args.where_filter}'
     plt.savefig(f'{basename}_{args.zoom_level}.png')
     plt.show()
 
