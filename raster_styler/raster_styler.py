@@ -1,4 +1,6 @@
 import argparse
+import csv
+import glob
 import os
 
 from ecoshard import geoprocessing
@@ -11,6 +13,39 @@ import numpy as np
 import matplotlib.colors as mcolors
 import matplotlib
 
+CUSTOM_STYLE_DIR = 'custom_styles'
+
+
+def read_raster_csv(file_path):
+    raster_dict = {}
+    with open(file_path, mode='r', newline='', encoding='utf-8') as file:
+        reader = csv.reader(file)
+        current_raster_name = ""
+        for i, row in enumerate(reader):
+            print(i, row)
+            if i % 4 == 0:
+                current_raster_name = row[0]
+                raster_dict[current_raster_name] = {}
+            elif i % 4 == 1:
+                raster_dict[current_raster_name]['position'] = [float(x) for x in row[1:] if x != '']
+            elif i % 4 == 2:
+                raster_dict[current_raster_name]['color'] = [x for x in row[1:] if x != '']
+            elif i % 4 == 3:
+                raster_dict[current_raster_name]['transparency'] = [int(x) for x in row[1:]  if x != '']
+    return raster_dict
+
+
+def hex_to_rgba(hex_code, transparency):
+    hex_code = hex_code.lstrip('#')
+    rgb = tuple(int(hex_code[i:i+2], 16) for i in (0, 2, 4))
+    alpha = transparency / 100  # Convert 0-100 scale to 0-1 scale
+    return rgb + (alpha,)
+
+
+CUSTOM_STYLES = {}
+for style_file_path in glob.glob(os.path.join(CUSTOM_STYLE_DIR, '*.csv')):
+    CUSTOM_STYLES.update(read_raster_csv(style_file_path))
+
 
 def compute_hillshade(dem_path, hillshade_output_path):
     dem_ds = gdal.Open(dem_path)
@@ -18,9 +53,25 @@ def compute_hillshade(dem_path, hillshade_output_path):
 
 
 def interpolated_colormap(cmap_name, N=100):
-    # Get the original colormap
-    #original_cmap = plt.cm.get_cmap(cmap_name)
-    original_cmap = matplotlib.colormaps[cmap_name]
+    try:
+        # Get the original colormap from matplotlib
+        original_cmap = plt.cm.get_cmap(cmap_name)
+    except:
+        # Handle custom colormap dictionary
+        custom_cmap_info = CUSTOM_STYLES[cmap_name]
+        positions = custom_cmap_info['position']
+        hex_colors = custom_cmap_info['color']
+        transparency = custom_cmap_info['transparency']
+
+        # Convert hex to RGBA format and include transparency
+        rgba_colors = [
+            hex_to_rgba(hex_colors[i], transparency[i])
+            for i in range(len(hex_colors))]
+
+        # positions are from 0..100 in the csv
+        original_cmap = LinearSegmentedColormap.from_list(
+            'custom_cmap', list(zip(np.array(positions)/100, rgba_colors)))
+
     # Use linspace to get N interpolated colors from the original colormap
     colors = original_cmap(np.linspace(0, 1, N))
     # Create a new colormap from these colors
@@ -34,7 +85,6 @@ def degrees_per_pixel(dpi):
     km_per_degree = earth_circumference_km / 360.0
     inches_per_degree = km_per_degree * 1000 * 100 / 2.54  # Convert km to inches
     deg_per_pixel = 1 / (dpi * inches_per_degree)
-
     return deg_per_pixel
 
 
@@ -58,6 +108,7 @@ def warp_and_set_valid_nodata(
                 None if where_filter is None else
                 f'"{field_id}"="{field_value}"'),
             'target_mask_value': target_nodata,
+            'all_touched': True,
             },
         working_dir=working_dir)
     r = gdal.OpenEx(target_raster_path, gdal.OF_RASTER | gdal.GA_Update)
@@ -153,6 +204,13 @@ def main():
     normalized_array = (valid_base_array - lower_quantile) / (
         upper_quantile - lower_quantile)
 
+    print(f'lower_quantile: {lower_quantile}')
+    print(f'upper_quantile: {upper_quantile}')
+
+    print(np.max(normalized_array))
+    print(np.min(normalized_array))
+    print(normalized_array)
+    print(base_array[200, 200])
     styled_array[~nodata_mask] = cm(normalized_array)
     styled_array[nodata_mask] = no_data_color
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -175,6 +233,7 @@ def main():
             styled_array = np.dstack((styled_rgb, alpha_channel))
         else:
             styled_array = styled_rgb
+        print(styled_array[200, 200])
         styled_array = np.clip(styled_array, 0, 1)
 
     ax.imshow(styled_array,  extent=extend_bb, origin='upper')
