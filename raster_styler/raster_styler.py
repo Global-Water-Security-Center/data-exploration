@@ -22,7 +22,6 @@ def read_raster_csv(file_path):
         reader = csv.reader(file)
         current_raster_name = ""
         for i, row in enumerate(reader):
-            print(i, row)
             if i % 4 == 0:
                 current_raster_name = row[0]
                 raster_dict[current_raster_name] = {}
@@ -37,7 +36,7 @@ def read_raster_csv(file_path):
 
 def hex_to_rgba(hex_code, transparency):
     hex_code = hex_code.lstrip('#')
-    rgb = tuple(int(hex_code[i:i+2], 16) for i in (0, 2, 4))
+    rgb = tuple(int(hex_code[i:i+2], 16)/255.0 for i in (0, 2, 4))
     alpha = transparency / 100  # Convert 0-100 scale to 0-1 scale
     return rgb + (alpha,)
 
@@ -55,7 +54,7 @@ def compute_hillshade(dem_path, hillshade_output_path):
 def interpolated_colormap(cmap_name, N=100):
     try:
         # Get the original colormap from matplotlib
-        original_cmap = plt.cm.get_cmap(cmap_name)
+        original_cmap = plt.colormaps[cmap_name]
     except:
         # Handle custom colormap dictionary
         custom_cmap_info = CUSTOM_STYLES[cmap_name]
@@ -175,7 +174,7 @@ def main():
 
     if args.dem_path is not None:
         hillshade_output_path = os.path.join(working_dir, 'hillshade.tif')
-        print(f'calculating hillshade')
+        print('calculating hillshade')
         task_graph.add_task(
             func=compute_hillshade,
             args=(warped_dem_path, hillshade_output_path),
@@ -204,13 +203,6 @@ def main():
     normalized_array = (valid_base_array - lower_quantile) / (
         upper_quantile - lower_quantile)
 
-    print(f'lower_quantile: {lower_quantile}')
-    print(f'upper_quantile: {upper_quantile}')
-
-    print(np.max(normalized_array))
-    print(np.min(normalized_array))
-    print(normalized_array)
-    print(base_array[200, 200])
     styled_array[~nodata_mask] = cm(normalized_array)
     styled_array[nodata_mask] = no_data_color
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -230,10 +222,13 @@ def main():
         styled_rgb = mcolors.hsv_to_rgb(styled_hsv)
         if styled_array.shape[2] == 4:
             alpha_channel = styled_array[..., 3]
-            styled_array = np.dstack((styled_rgb, alpha_channel))
+            # Perform alpha blending
+            blended_rgb = alpha_channel[..., np.newaxis] * styled_rgb + (1 - alpha_channel[..., np.newaxis]) * scaled_hillshade[..., np.newaxis]
+            # Update the RGB channels with the blended colors
+            styled_array = np.dstack((blended_rgb, np.ones(alpha_channel.shape)))
+            styled_array[nodata_mask] = no_data_color
         else:
             styled_array = styled_rgb
-        print(styled_array[200, 200])
         styled_array = np.clip(styled_array, 0, 1)
 
     ax.imshow(styled_array,  extent=extend_bb, origin='upper')
