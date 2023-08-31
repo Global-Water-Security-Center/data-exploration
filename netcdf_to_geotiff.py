@@ -60,7 +60,7 @@ def main():
                     f'{list(dataset.coords.keys())}')
             coord_array = dataset.coords[field_id]
             res_list.append(float(
-                (coord_array[-1] - coord_array[0]) / len(coord_array)))
+                numpy.median(numpy.diff(coord_array))))
             coord_list.append(coord_array)
 
         n_bands = 1
