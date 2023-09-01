@@ -151,7 +151,9 @@ def main():
     LOGGER.debug(cmip6_dataset.first().getInfo())
 
     start_year, end_year = [int(v) for v in args.year_range.split('-')]
-    season_day_start, season_day_end = [int(v) for v in args.season_range.split('-')]
+    season_day_start, season_day_end = [
+        int(v) for v in args.season_range.split('-')]
+    collection_by_year = ee.Dictionary()
     for year_id in range(start_year, end_year+1):
         #TODO: a list of years in the long time period where the temperature threshold was reached or breached in the medium period
         # Convert Julian days to actual dates
@@ -160,13 +162,9 @@ def main():
         local_cmip6_dataset = cmip6_dataset.filterDate(start_date, end_date)
         # Map the function over the ImageCollection
         reduced_collection = local_cmip6_dataset.map(robust_reduce_region_function)
-        valid_features = reduced_collection.filter(ee.Filter.neq('valid', 0))
-
-        # Fetch the feature collection as a Python list (optional)
-        # Be cautious about pulling large datasets into Python space
-        reduced_collection_list = valid_features.getInfo()['features']
-
-        print(reduced_collection_list)
+        collection_by_year.add(year_id, reduced_collection)
+    #reduced_collection_list = reduced_collection.getInfo()['features']
+    print(collection_by_year.getInfo())
 
 
 if __name__ == '__main__':
