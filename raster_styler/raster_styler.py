@@ -1,3 +1,5 @@
+import logging
+import sys
 import argparse
 import csv
 import glob
@@ -11,9 +13,17 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.colors as mcolors
-import matplotlib
 
 CUSTOM_STYLE_DIR = 'custom_styles'
+
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'))
+LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
+logging.getLogger('fetch_data').setLevel(logging.INFO)
 
 
 def read_raster_csv(file_path):

@@ -16,3 +16,5 @@ rtree
 pathvalidate
 netcdf4
 rioxarray
+matplotlib
+geopandas
