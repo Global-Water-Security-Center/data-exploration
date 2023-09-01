@@ -99,11 +99,9 @@ def degrees_per_pixel(dpi):
 
 def warp_and_set_valid_nodata(
         base_raster_path, target_pixel_size, bounding_box,
-        boundary_vector_path, where_filter, working_dir,
+        boundary_vector_path, field_id, field_value, working_dir,
         resample_method,
         target_raster_path):
-    if where_filter is not None:
-        field_id, field_value = where_filter.split('=')
     raster_info = geoprocessing.get_raster_info(base_raster_path)
     target_nodata = raster_info['nodata'][0]
     if target_nodata is None:
@@ -114,7 +112,7 @@ def warp_and_set_valid_nodata(
         vector_mask_options={
             'mask_vector_path': boundary_vector_path,
             'mask_vector_where_filter': (
-                None if where_filter is None else
+                None if field_id is None else
                 f'"{field_id}"="{field_value}"'),
             'target_mask_value': target_nodata,
             'all_touched': True,
@@ -140,7 +138,7 @@ def main():
             'one of near|bilinear|cubic|cubicspline|lanczos|average|mode|max'
             '|min|med|q1|q3'))
     parser.add_argument(
-        '--where_filter', help=(
+        '--where_filter', nargs='+', help=(
             'A string of the form "field=val" where field is the field in '
             'the boundary_vector_path and val is the value to filter by. '
             'ex: sov_a3=IND'))
@@ -154,7 +152,12 @@ def main():
 
     # clip the raster path and DEM path to the boundary subset
     gdf = gpd.read_file(args.boundary_vector_path)
-    field_id, field_value = args.where_filter.split('=')
+    if args.where_filter is None:
+        field_id, field_value = None, None
+    elif len(args.where_filter) == 1:
+        field_id, field_value = args.where_filter.split('=')
+    else:
+        field_id, field_value = args.where_filter
     filtered_gdf = gdf[gdf[field_id].isin([field_value])]
     bounding_box = filtered_gdf.unary_union.envelope.bounds
     target_pixel_size = [
@@ -176,8 +179,8 @@ def main():
                 func=warp_and_set_valid_nodata,
                 args=(
                     base_raster_path, target_pixel_size, bounding_box,
-                    args.boundary_vector_path, where_filter, working_dir,
-                    args.resample_method,
+                    args.boundary_vector_path, field_id, field_value,
+                    working_dir, args.resample_method,
                     target_raster_path),
                 target_path_list=[target_raster_path],
                 task_name=f'warp {base_raster_path}')
