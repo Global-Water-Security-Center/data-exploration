@@ -1,8 +1,14 @@
 import argparse
+import io
 import logging
 import os
 import sys
+import zipfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
+from ecoshard import geoprocessing
+from osgeo import gdal
 import ee
 import geemap
 import geopandas
@@ -47,33 +53,82 @@ VALID_MODEL_LIST = [
 
 DATASET_ID = 'NASA/GDDP-CMIP6'
 DATASET_CRS = 'EPSG:4326'
-DATASET_SCALE = 27830
+DATASET_SCALE = 27830//4
+
+def check_dataset_collection(model, dataset_id, band_id, start_year, end_year):
+    def band_checker(image):
+        available_bands = image.bandNames()
+        return ee.Image(ee.Algorithms.If(
+            available_bands.contains(band_id), image,
+            ee.Image.constant(0).rename('dummy_band')))
+
+    try:
+        collection = (
+            ee.ImageCollection(dataset_id)
+            .filter(ee.Filter.eq('model', model))
+            .filter(ee.Filter.calendarRange(start_year, end_year, 'year'))
+            .map(band_checker))
+
+        # Filter out images with the 'dummy_band'
+        collection = collection.filterMetadata(
+            'system:band_names', 'not_equals', ['dummy_band'])
+
+        size = collection.size().getInfo()
+        print(f'{model} has {size} elements with the band(s) {band_id}')
+        return size > 0
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return False
 
 
-def check_collection(model, dataset_id, start_year, end_year):
-    collection = (ee.ImageCollection(dataset_id)
-                  .filter(ee.Filter.eq('model', model))
-                  .filter(ee.Filter.calendarRange(
-                        start_year, end_year, 'year'))
-                  .select('tasmax'))
-    size = collection.size().getInfo()
-    return size > 0
-
-
-def download_geotiff(image, description, scale, region):
-    print(image.bandNames().getInfo())
+def download_geotiff(image, description, scale, ee_poly, clip_poly_path):
     url = image.getDownloadURL({
         'scale': scale,
         'crs': 'EPSG:4326',
-        'region': region,
+        'region': ee_poly.geometry(),
         'fileFormat': 'GeoTIFF',
         'description': description,
     })
-    print(f'downloading {url}')
+
     response = requests.get(url)
     if response.status_code == 200:
-        with open(f"{description}.tif", 'wb') as f:
-            f.write(response.content)
+        content_type = response.headers.get('content-type')
+        if 'application/zip' in content_type or 'application/octet-stream' in content_type:
+            zip_buffer = io.BytesIO(response.content)
+            target_preclip = f"pre_clip_{description}.tif"
+
+            with zipfile.ZipFile(zip_buffer) as zip_ref:
+                zip_ref.extractall(f"{description}")
+                # Assuming there is only one tif file in the zip
+                for filename in zip_ref.namelist():
+                    if filename.endswith('.tif'):
+                        # Optionally rename the file
+                        if os.path.exists(target_preclip):
+                            os.remove(target_preclip)
+                        os.rename(f"{description}/{filename}", target_preclip)
+                        print(f"Successfully downloaded and unzipped {filename}")
+            # TODO: warp w/ geoptorcesing
+            r = gdal.OpenEx(target_preclip, gdal.OF_RASTER)
+            b = r.GetRasterBand(1)
+            b.SetNoDataValue(-9999)
+            b = None
+            r = None
+            raster_info = geoprocessing.get_raster_info(target_preclip)
+
+            target_raster_path = f'{description}.tif'
+            geoprocessing.warp_raster(
+                target_preclip, raster_info['pixel_size'],
+                target_raster_path,
+                'near',
+                vector_mask_options={
+                    'mask_vector_path': clip_poly_path,
+                    'all_touched': True,
+                    })
+            os.remove(target_preclip)
+        else:
+            print(f"Unexpected content type: {content_type}")
+            print(response.content.decode('utf-8'))
     else:
         print(f"Failed to download {description} from {url}")
 
@@ -88,7 +143,7 @@ def main():
     parser.add_argument('--where_statement', help=(
         'If provided, allows filtering by a field id and value of the form '
         'field_id=field_value'))
-    parser.add_argument('--band_ids', nargs='+', help="band ids to fetch")
+    parser.add_argument('--band_id', help="band id to fetch")
     parser.add_argument('--date_range', nargs=2, type=str, help=(
         'Two date ranges in YYYY format to download between.'))
     args = parser.parse_args()
@@ -110,18 +165,23 @@ def main():
     aoi_vector.to_file(local_shapefile_path)
     aoi_vector = None
     ee_poly = geemap.geojson_to_ee(local_shapefile_path)
-    os.remove(local_shapefile_path)
 
     # Filter models dynamically based on data availability
     start_year = int(args.date_range[0])
     end_year = int(args.date_range[1])
-    filtered_models = [
-        model for model in VALID_MODEL_LIST
-        if check_collection(model, DATASET_ID, start_year, end_year)]
+
+    def filter_model(model):
+        return model if check_dataset_collection(
+            model, DATASET_ID, args.band_id, start_year, end_year) else None
+
+    with ThreadPoolExecutor(len(VALID_MODEL_LIST)) as executor:
+        filtered_models = list(
+            filter(None, executor.map(filter_model, VALID_MODEL_LIST)))
 
     cmip6_dataset = ee.ImageCollection(DATASET_ID).filter(
-        ee.Filter.inList('model', filtered_models)).select(args.band_ids)
+        ee.Filter.inList('model', filtered_models)).select(args.band_id)
 
+    thread_list = []
     for month in range(1, 13):
         monthly_collection = cmip6_dataset.filter(
             ee.Filter.calendarRange(month, month, 'month')).filter(
@@ -129,10 +189,20 @@ def main():
         monthly_mean = monthly_collection.reduce(ee.Reducer.mean())
         monthly_mean_clipped = monthly_mean.clip(ee_poly)
         LOGGER.debug(monthly_mean_clipped.getInfo())
-        description = f"MonthlyMean_{month}_{start_year}_{end_year}"
-        download_geotiff(monthly_mean_clipped.select(
-            [f'{band_id}_mean' for band_id in args.band_ids]), description,
-            DATASET_SCALE, ee_poly.geometry())
+        description = (
+            f"{args.band_id}_monthlyMean_{start_year}_{end_year}_{month}")
+        worker = threading.Thread(
+            target=download_geotiff,
+            args=(
+                monthly_mean_clipped.select(f'{args.band_id}_mean'),
+                description, DATASET_SCALE, ee_poly, local_shapefile_path))
+        worker.start()
+        thread_list.append(worker)
+
+    for worker in thread_list:
+        worker.join()
+    os.remove(local_shapefile_path)
+
 
 if __name__ == '__main__':
     main()
