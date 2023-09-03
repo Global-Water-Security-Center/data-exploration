@@ -193,6 +193,24 @@ def main():
             monthly_aggregate = monthly_collection.reduce(
                 ee.Reducer.mean()).subtract(273.15)
         elif args.aggregate_type == 'precip':
+            # Group by model (replace 'model' with the actual property name)
+            unique_models = monthly_collection.aggregate_array(
+                'model').distinct()
+
+            def reduce_by_model(model):
+                model_collection = monthly_collection.filter(
+                    ee.Filter.eq('model', model))
+                return model_collection.reduce(ee.Reducer.sum())
+
+            # Reduce each model's images to a single image representing the sum over the time range
+            model_sums = unique_models.map(reduce_by_model)
+
+            # Convert to an ImageCollection and then reduce to a single image by taking the mean
+            model_sums_collection = ee.ImageCollection(model_sums)
+            monthly_aggregate = model_sums_collection.reduce(
+                ee.Reducer.mean()).divide((end_year-start_year+1)*30).multiply(
+                86400)
+
             # multiply by 86400 to convert to mm
             monthly_aggregate = monthly_collection.reduce(
                 ee.Reducer.sum()).divide(
