@@ -126,6 +126,7 @@ def download_geotiff(image, description, scale, ee_poly, clip_poly_path):
                     'all_touched': True,
                     })
             os.remove(target_preclip)
+            LOGGER.info(f'saved {target_raster_path}')
         else:
             print(f"Unexpected content type: {content_type}")
             print(response.content.decode('utf-8'))
@@ -143,6 +144,7 @@ def main():
     parser.add_argument('--where_statement', help=(
         'If provided, allows filtering by a field id and value of the form '
         'field_id=field_value'))
+    parser.add_argument('--aggregate_type', help='Either "sum" or "mean"')
     parser.add_argument('--band_id', help="band id to fetch")
     parser.add_argument('--date_range', nargs=2, type=str, help=(
         'Two date ranges in YYYY format to download between.'))
@@ -186,15 +188,23 @@ def main():
         monthly_collection = cmip6_dataset.filter(
             ee.Filter.calendarRange(month, month, 'month')).filter(
             ee.Filter.calendarRange(start_year, end_year, 'year'))
-        monthly_mean = monthly_collection.reduce(ee.Reducer.mean())
-        monthly_mean_clipped = monthly_mean.clip(ee_poly)
-        LOGGER.debug(monthly_mean_clipped.getInfo())
+        if args.aggregate_type == 'temp':
+            # convert to C
+            monthly_aggregate = monthly_collection.reduce(
+                ee.Reducer.mean()).subtract(273.15)
+        elif args.aggregate_type == 'precip':
+            # multiply by 86400 to convert to mm
+            monthly_aggregate = monthly_collection.reduce(
+                ee.Reducer.sum()).divide(
+                (end_year-start_year+1)*30).multiply(86400)
+        monthly_aggregate_clipped = monthly_aggregate.clip(ee_poly)
+        LOGGER.debug(monthly_aggregate_clipped.getInfo())
         description = (
             f"{args.band_id}_monthlyMean_{start_year}_{end_year}_{month}")
         worker = threading.Thread(
             target=download_geotiff,
             args=(
-                monthly_mean_clipped.select(f'{args.band_id}_mean'),
+                monthly_aggregate_clipped,
                 description, DATASET_SCALE, ee_poly, local_shapefile_path))
         worker.start()
         thread_list.append(worker)
