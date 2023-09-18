@@ -170,8 +170,8 @@ def main():
 
     task_graph = taskgraph.TaskGraph(
         WORKING_DIR,
-        min(os.cpu_count(), len(raster_path_list)*2, -1),
-        parallel_mode='thread')
+        min(os.cpu_count(), len(raster_path_list)*2),
+        parallel_mode='process')
     fig_path_list = []
     warp_task_lookup = {}
     for raster_path in raster_path_list:
