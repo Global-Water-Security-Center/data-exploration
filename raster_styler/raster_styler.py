@@ -15,6 +15,7 @@ import numpy as np
 import matplotlib.colors as mcolors
 
 CUSTOM_STYLE_DIR = 'custom_styles'
+WORKING_DIR = 'raster_styler_working_dir'
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,6 +25,7 @@ logging.basicConfig(
         ' [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 logging.getLogger('fetch_data').setLevel(logging.INFO)
+logging.getLogger('ecoshard.taskgraph').setLevel(logging.WARN)
 
 
 def read_raster_csv(file_path):
@@ -125,9 +127,14 @@ def warp_and_set_valid_nodata(
     r = None
 
 
+def root_filename(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
 def main():
     parser = argparse.ArgumentParser(description=('Style a raster.'))
-    parser.add_argument('raster_path', help=('Path to raw geotiff to style'))
+    parser.add_argument('raster_path_list', help=(
+        'Path or pattern to raw geotiff to style'))
     parser.add_argument(
         'boundary_vector_path', help='Path to boundary vector')
     parser.add_argument(
@@ -138,7 +145,7 @@ def main():
             'one of near|bilinear|cubic|cubicspline|lanczos|average|mode|max'
             '|min|med|q1|q3'))
     parser.add_argument(
-        '--where_filter', nargs='+', help=(
+        '--where_filter', help=(
             'A string of the form "field=val" where field is the field in '
             'the boundary_vector_path and val is the value to filter by. '
             'ex: sov_a3=IND'))
@@ -150,60 +157,108 @@ def main():
 
     args = parser.parse_args()
 
+    raster_path_list = list(glob.glob(args.raster_path_list))
+
     # clip the raster path and DEM path to the boundary subset
     gdf = gpd.read_file(args.boundary_vector_path)
     if args.where_filter is None:
         field_id, field_value = None, None
-    elif len(args.where_filter) == 1:
-        field_id, field_value = args.where_filter.split('=')
     else:
-        field_id, field_value = args.where_filter
+        field_id, field_value = args.where_filter.split('=')
     filtered_gdf = gdf[gdf[field_id].isin([field_value])]
     bounding_box = filtered_gdf.unary_union.envelope.bounds
-    target_pixel_size = [
-        v/args.zoom_level
-        for v in geoprocessing.get_raster_info(args.raster_path)['pixel_size']]
 
-    # warp `raster_path` and DEM_PATH to the bounding box and target pixel size
-    working_dir = f'working_dir/{args.zoom_level}'
-    os.makedirs(working_dir, exist_ok=True)
-    task_graph = taskgraph.TaskGraph(working_dir, -1)
-    warped_raster_path = os.path.join(working_dir, 'warped_raster.tif')
-    warped_dem_path = os.path.join(working_dir, 'warped_dem.tif')
-    for base_raster_path, target_raster_path, where_filter in [
-            (args.raster_path, warped_raster_path, args.where_filter),
-            (args.dem_path, warped_dem_path, None)]:
-        if base_raster_path is not None:
-            print(f'warping and clipping {base_raster_path}')
-            task_graph.add_task(
-                func=warp_and_set_valid_nodata,
-                args=(
-                    base_raster_path, target_pixel_size, bounding_box,
-                    args.boundary_vector_path, field_id, field_value,
-                    working_dir, args.resample_method,
-                    target_raster_path),
-                target_path_list=[target_raster_path],
-                task_name=f'warp {base_raster_path}')
+    task_graph = taskgraph.TaskGraph(
+        WORKING_DIR,
+        min(os.cpu_count(), len(raster_path_list)*2, -1),
+        parallel_mode='thread')
+    fig_path_list = []
+    warp_task_lookup = {}
+    for raster_path in raster_path_list:
+        target_pixel_size = [
+            v/args.zoom_level
+            for v in geoprocessing.get_raster_info(
+                raster_path)['pixel_size']]
 
-    if args.dem_path is not None:
-        hillshade_output_path = os.path.join(working_dir, 'hillshade.tif')
-        print('calculating hillshade')
+        working_dir = (
+            f'working_dir/{args.where_filter}/{args.zoom_level}')
+        os.makedirs(working_dir, exist_ok=True)
+        warped_raster_path = os.path.join(
+            working_dir, f'{root_filename(raster_path)}_warped_raster.tif')
+        target_pixel_size_str = '_'.join([str(v) for v in target_pixel_size])
+        warped_dem_path = os.path.join(
+            working_dir, f'warped_dem_{target_pixel_size_str}.tif')
+        task_list = []
+        for base_raster_path, target_raster_path, where_filter in [
+                (raster_path, warped_raster_path, args.where_filter),
+                (args.dem_path, warped_dem_path, None)]:
+            if base_raster_path is not None:
+                path_tuple = (base_raster_path, target_raster_path)
+                if path_tuple not in warp_task_lookup:
+                    print(f'warping and clipping {base_raster_path}')
+                    warp_task = task_graph.add_task(
+                        func=warp_and_set_valid_nodata,
+                        args=(
+                            base_raster_path, target_pixel_size, bounding_box,
+                            args.boundary_vector_path, field_id, field_value,
+                            working_dir, args.resample_method,
+                            target_raster_path),
+                        target_path_list=[target_raster_path],
+                        task_name=f'warp {base_raster_path}')
+                    warp_task_lookup[path_tuple] = warp_task
+                task_list.append(warp_task_lookup[path_tuple])
+
+        hillshade_output_path = None
+        if args.dem_path is not None:
+            hillshade_output_path = os.path.join(
+                working_dir, f'hillshade_{target_pixel_size_str}.tif')
+            print('calculating hillshade')
+            if warped_dem_path not in warp_task_lookup:
+                hillshade_task = task_graph.add_task(
+                    func=compute_hillshade,
+                    args=(warped_dem_path, hillshade_output_path),
+                    dependent_task_list=[task_list[-1]],  # warp is the last task
+                    target_path_list=[hillshade_output_path],
+                    task_name='calculating hillshade')
+                warp_task_lookup[warped_dem_path] = hillshade_task
+            task_list.append(warp_task_lookup[warped_dem_path])
+
+        fig_path = f'{root_filename(raster_path)}_{args.zoom_level}.png'
         task_graph.add_task(
-            func=compute_hillshade,
-            args=(warped_dem_path, hillshade_output_path),
-            target_path_list=[hillshade_output_path],
-            task_name='calculating hillshade')
+            func=style_raster,
+            args=(
+                warped_raster_path, hillshade_output_path, args.cmap,
+                args.boundary_vector_path, args.where_filter, fig_path),
+            dependent_task_list=task_list,
+            target_path_list=[fig_path],
+            task_name=f'create {fig_path}')
+        fig_path_list.append(fig_path)
 
-    task_graph.join()
     task_graph.close()
+    task_graph.join()
+    LOGGER.info('ALL DONE, figures at:\n* ' + "\n* ".join(fig_path_list))
 
-    base_array = gdal.OpenEx(warped_raster_path, gdal.OF_RASTER).ReadAsArray()
+
+def style_raster(
+        base_raster_path, hillshade_raster_path, cmap, boundary_vector_path,
+        where_filter, fig_path):
+
+    gdf = gpd.read_file(boundary_vector_path)
+    if where_filter is None:
+        field_id, field_value = None, None
+    else:
+        field_id, field_value = where_filter.split('=')
+        gdf = gdf[gdf[field_id].isin([field_value])]
+    bounding_box = gdf.unary_union.envelope.bounds
+
+    base_array = gdal.OpenEx(
+        base_raster_path, gdal.OF_RASTER).ReadAsArray()
 
     # Create a color gradient
-    cm = interpolated_colormap(args.cmap)
+    cm = interpolated_colormap(cmap)
     no_data_color = [0, 0, 0, 0]  # Assuming a black NoData color with full transparency
 
-    nodata = geoprocessing.get_raster_info(warped_raster_path)['nodata'][0]
+    nodata = geoprocessing.get_raster_info(base_raster_path)['nodata'][0]
     nodata_mask = (base_array == nodata) | np.isnan(base_array)
     styled_array = np.empty(base_array.shape + (4,), dtype=float)
     valid_base_array = base_array[~nodata_mask]
@@ -222,39 +277,45 @@ def main():
 
     extend_bb = [bounding_box[i] for i in (0, 2, 1, 3)]
 
-    if args.dem_path is not None:
-        hillshade_array = gdal.OpenEx(hillshade_output_path, gdal.OF_RASTER).ReadAsArray()
+    if hillshade_raster_path is not None:
+        hillshade_array = gdal.OpenEx(
+            hillshade_raster_path, gdal.OF_RASTER).ReadAsArray()
         hillshade_array = (
             hillshade_array-np.min(hillshade_array))/(
             np.max(hillshade_array)-np.min(hillshade_array))
         # adjust brightness, not hue
         styled_hsv = mcolors.rgb_to_hsv(styled_array[..., :3])
         min_brightness = 0.3
-        scaled_hillshade = min_brightness + (1.0 - min_brightness) * hillshade_array
+        scaled_hillshade = (
+            min_brightness + (1.0 - min_brightness) * hillshade_array)
         styled_hsv[..., 2] *= scaled_hillshade
         styled_rgb = mcolors.hsv_to_rgb(styled_hsv)
         if styled_array.shape[2] == 4:
             alpha_channel = styled_array[..., 3]
             # Perform alpha blending
-            blended_rgb = alpha_channel[..., np.newaxis] * styled_rgb + (1 - alpha_channel[..., np.newaxis]) * scaled_hillshade[..., np.newaxis]
+            blended_rgb = (
+                alpha_channel[..., np.newaxis] * styled_rgb + (
+                    1 - alpha_channel[..., np.newaxis]) *
+                scaled_hillshade[..., np.newaxis])
             # Update the RGB channels with the blended colors
-            styled_array = np.dstack((blended_rgb, np.ones(alpha_channel.shape)))
+            styled_array = np.dstack(
+                (blended_rgb, np.ones(alpha_channel.shape)))
             styled_array[nodata_mask] = no_data_color
         else:
             styled_array = styled_rgb
         styled_array = np.clip(styled_array, 0, 1)
 
     ax.imshow(styled_array,  extent=extend_bb, origin='upper')
-    filtered_gdf.boundary.plot(ax=ax, color='black', linewidth=1)
+    gdf.boundary.plot(ax=ax, color='black', linewidth=1)
     ax.axis('off')
     plt.tight_layout()
-    basename = os.path.basename(os.path.splitext(args.raster_path)[0])
-    if args.dem_path is not None:
+    basename = root_filename(base_raster_path)
+    if hillshade_raster_path is not None:
         basename += '_hillshade'
-    if args.where_filter is not None:
-        basename += f'_{args.where_filter}'
-    plt.savefig(f'{basename}_{args.zoom_level}.png')
-    plt.show()
+    if where_filter is not None:
+        basename += f'_{where_filter}'
+
+    plt.savefig(fig_path)
 
 
 if __name__ == '__main__':

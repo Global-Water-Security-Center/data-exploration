@@ -130,7 +130,8 @@ def main():
     parser.add_argument(
         '--local_workspace', type=str, default='era5_process_workspace',
         help='Directory to downloand and work in.')
-    parser.add_argument('--path_to_aoi', required=True, help='Path to clip AOI from')
+    parser.add_argument(
+        '--path_to_aoi', required=True, help='Path to clip AOI from')
     parser.add_argument(
         '--filter_aoi_by_field', help=(
             'an argument of the form FIELDNAME=VALUE such as `sov_a3=AFG`'))
