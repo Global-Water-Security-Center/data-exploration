@@ -116,6 +116,10 @@ def download_and_repack(year_month, target_path_pattern, aoi_path, clip_id):
         LOGGER.error(f'No file found for {year_month}, skipping')
 
 
+def scrub_windows_sep_chars(path):
+    return path.replace('\\', '/')
+
+
 def main():
     parser = argparse.ArgumentParser(description=(
         'Fetch and clip AER ERA anomaly data.'))
@@ -132,21 +136,22 @@ def main():
             'an argument of the form FIELDNAME=VALUE such as `sov_a3=AFG`'))
     args = parser.parse_args()
 
+    path_to_aoi = scrub_windows_sep_chars(args.path_to_aoi)
     temp_dir = None
     if args.filter_aoi_by_field:
         temp_dir = tempfile.mkdtemp(dir='.')
         filtered_aoi_path = os.path.join(
             temp_dir,
-            f'{os.path.basename(os.path.splitext(args.path_to_aoi)[0])}'
+            f'{os.path.basename(os.path.splitext(path_to_aoi)[0])}'
             f'{args.filter_aoi_by_field}.gpkg')
-        aoi_vector = geopandas.read_file(args.path_to_aoi)
+        aoi_vector = geopandas.read_file(path_to_aoi)
         field_id, value = args.filter_aoi_by_field.split('=')
         aoi_vector = aoi_vector[aoi_vector[field_id] == value]
         aoi_vector.to_file(filtered_aoi_path, driver='GPKG')
         aoi_vector = None
         aoi_path = filtered_aoi_path
     else:
-        aoi_path = args.path_to_aoi
+        aoi_path = path_to_aoi
 
     start_date = datetime.datetime.strptime(args.start_date, '%Y-%m')
     end_date = datetime.datetime.strptime(args.end_date, '%Y-%m')
@@ -168,6 +173,8 @@ def main():
         _ = list(executor.map(partial(
             download_and_repack, target_path_pattern=target_path_pattern,
             aoi_path=aoi_path, clip_id=args.filter_aoi_by_field), date_list))
+
+    print(f'all done, files located at {target_path_pattern}')
 
 
 if __name__ == '__main__':

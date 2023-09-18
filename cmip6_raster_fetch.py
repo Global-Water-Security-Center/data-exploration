@@ -1,3 +1,4 @@
+"""See `python scriptname.py --help"""
 import argparse
 import io
 import logging
@@ -54,6 +55,7 @@ VALID_MODEL_LIST = [
 DATASET_ID = 'NASA/GDDP-CMIP6'
 DATASET_CRS = 'EPSG:4326'
 DATASET_SCALE = 27830//4
+
 
 def check_dataset_collection(model, dataset_id, band_id, start_year, end_year):
     def band_checker(image):
@@ -135,7 +137,9 @@ def download_geotiff(image, description, scale, ee_poly, clip_poly_path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Fetch CMIP6 monthly normals.')
+    parser = argparse.ArgumentParser(description=(
+        'Fetch CMIP6 temperature and precipitation monthly normals given a '
+        'year date range.'))
     parser.add_argument(
         '--authenticate', action='store_true',
         help='Pass this flag if you need to reauthenticate with GEE')
@@ -202,10 +206,12 @@ def main():
                     ee.Filter.eq('model', model))
                 return model_collection.reduce(ee.Reducer.sum())
 
-            # Reduce each model's images to a single image representing the sum over the time range
+            # Reduce each model's images to a single image representing the
+            # sum over the time range
             model_sums = unique_models.map(reduce_by_model)
 
-            # Convert to an ImageCollection and then reduce to a single image by taking the mean
+            # Convert to an ImageCollection and then reduce to a single image
+            # by taking the mean
             model_sums_collection = ee.ImageCollection(model_sums)
             monthly_aggregate = model_sums_collection.reduce(
                 ee.Reducer.mean()).divide((end_year-start_year+1)*30).multiply(
