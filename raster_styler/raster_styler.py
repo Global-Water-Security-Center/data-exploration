@@ -5,14 +5,15 @@ import csv
 import glob
 import os
 
+from argparse import ArgumentTypeError
 from ecoshard import geoprocessing
+from ecoshard import taskgraph
 from matplotlib.colors import LinearSegmentedColormap
 from osgeo import gdal
-from ecoshard import taskgraph
 import geopandas as gpd
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
-import matplotlib.colors as mcolors
 
 CUSTOM_STYLE_DIR = 'custom_styles'
 WORKING_DIR = 'raster_styler_working_dir'
@@ -131,6 +132,13 @@ def root_filename(path):
     return os.path.splitext(os.path.basename(path))[0]
 
 
+def check_hillshade_intensity(value):
+    value = float(value)
+    if value < 0 or value > 1:
+        raise ArgumentTypeError("hillshade_intensity must be between 0 and 1.")
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=('Style a raster.'))
     parser.add_argument('raster_path_list', help=(
@@ -154,6 +162,12 @@ def main():
     parser.add_argument(
         '--cmap', default='turbo',
         help='Colomap, must be one of: ' + ', '.join(plt.colormaps()))
+    parser.add_argument(
+        '--hillshade_intensity',
+        default=1.0,
+        type=check_hillshade_intensity, help=(
+            'Number between 0 and 1 showing how intense the hillshade effect '
+            'should be.'))
 
     args = parser.parse_args()
 
@@ -228,7 +242,8 @@ def main():
             func=style_raster,
             args=(
                 warped_raster_path, hillshade_output_path, args.cmap,
-                args.boundary_vector_path, args.where_filter, fig_path),
+                args.hillshade_intensity, args.boundary_vector_path,
+                args.where_filter, fig_path),
             dependent_task_list=task_list,
             target_path_list=[fig_path],
             task_name=f'create {fig_path}')
@@ -240,7 +255,8 @@ def main():
 
 
 def style_raster(
-        base_raster_path, hillshade_raster_path, cmap, boundary_vector_path,
+        base_raster_path, hillshade_raster_path, cmap, hillshade_intensity,
+        boundary_vector_path,
         where_filter, fig_path):
 
     gdf = gpd.read_file(boundary_vector_path)
@@ -285,9 +301,8 @@ def style_raster(
             np.max(hillshade_array)-np.min(hillshade_array))
         # adjust brightness, not hue
         styled_hsv = mcolors.rgb_to_hsv(styled_array[..., :3])
-        min_brightness = 0.3
         scaled_hillshade = (
-            min_brightness + (1.0 - min_brightness) * hillshade_array)
+            (1.0 - hillshade_intensity) + hillshade_intensity * hillshade_array)
         styled_hsv[..., 2] *= scaled_hillshade
         styled_rgb = mcolors.hsv_to_rgb(styled_hsv)
         if styled_array.shape[2] == 4:
