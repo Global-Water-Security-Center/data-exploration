@@ -205,7 +205,7 @@ def main():
             # convert to C
             percentile = float(args.aggregate_type.split('_')[1])
             monthly_aggregate = monthly_collection.reduce(
-                ee.Reducer.percentile(percentile)).subtract(273.15)
+                ee.Reducer.percentile([percentile])).subtract(273.15)
         elif args.aggregate_type == 'sum':
             # Group by model (replace 'model' with the actual property name)
             unique_models = monthly_collection.aggregate_array(
