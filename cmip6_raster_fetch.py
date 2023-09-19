@@ -4,6 +4,7 @@ import io
 import logging
 import os
 import sys
+import shutil
 import zipfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -111,6 +112,7 @@ def download_geotiff(
                         if os.path.exists(target_preclip):
                             os.remove(target_preclip)
                         os.rename(f"{description}/{filename}", target_preclip)
+                        shutil.rmtree(description)
                         print(f"Successfully downloaded and unzipped {filename}")
             r = gdal.OpenEx(target_preclip, gdal.OF_RASTER)
             b = r.GetRasterBand(1)
@@ -194,10 +196,9 @@ def main():
             filter(None, executor.map(filter_model, VALID_MODEL_LIST)))
 
     make_header = not os.path.exists(args.table_path)
-    make_header = True
     table_file = open(args.table_path, 'a')
     if make_header:
-        table_file.write('f{args.field_id_for_aggregate},band_id,scenario_id,model_id,aggregate_type,start-end-year,month,avg val in feature\n')
+        table_file.write(f'{args.field_id_for_aggregate},band_id,scenario_id,model_id,aggregate_type,start-end-year,month,avg val in feature\n')
 
     models_to_analyze = [
         (model_id, [model_id]) for model_id in filtered_models]
@@ -218,11 +219,11 @@ def main():
                 f'{args.band_id}_{args.scenario_id}_{model_id}_monthly_{args.aggregate_type}'
                 f'{start_year}_{end_year}_{month}')
             target_raster_path = os.path.join(WORKSPACE_DIR, f'{description}.tif')
-            raster_path_map[
-                (args.band_id, args.scenario_id, args.aggregate_type,
-                 f'{start_year}-{end_year}', month)] = target_raster_path
             if os.path.exists(target_raster_path):
                 LOGGER.info(f'{target_raster_path} already exists, so skipping')
+                raster_path_map[
+                    (args.band_id, args.scenario_id, args.aggregate_type,
+                     f'{start_year}-{end_year}', month)] = target_raster_path
                 continue
 
             monthly_collection = cmip6_dataset.filter(
@@ -243,15 +244,21 @@ def main():
                     ee.Reducer.sum()).multiply(
                         86400/((end_year-start_year+1)*len(model_list)))
             monthly_aggregate_clipped = monthly_aggregate.clip(ee_poly)
-            LOGGER.debug(monthly_aggregate_clipped.getInfo())
-            worker = threading.Thread(
-                target=download_geotiff,
-                args=(
-                    monthly_aggregate_clipped,
-                    description, args.dataset_scale, ee_poly,
-                    local_shapefile_path, target_raster_path))
-            worker.start()
-            thread_list.append(worker)
+            try:
+                LOGGER.debug(monthly_aggregate_clipped.getInfo())
+                worker = threading.Thread(
+                    target=download_geotiff,
+                    args=(
+                        monthly_aggregate_clipped,
+                        description, args.dataset_scale, ee_poly,
+                        local_shapefile_path, target_raster_path))
+                worker.start()
+                thread_list.append(worker)
+                raster_path_map[
+                    (args.band_id, args.scenario_id, args.aggregate_type,
+                     f'{start_year}-{end_year}', month)] = target_raster_path
+            except Exception as e:
+                LOGGER.error(f'***** ERROR on downloading geotiff, skipping: {e}')
 
         for worker in thread_list:
             worker.join()
@@ -259,9 +266,13 @@ def main():
         aoi_vector = gdal.OpenEx(args.aoi_vector_path)
         aoi_layer = aoi_vector.GetLayer()
         for (band_id, scenario_id, aggregate_type, start_end_year, month), raster_path in raster_path_map.items():
+            zonal_working_dir = os.path.join(WORKSPACE_DIR, os.path.basename(os.path.splitext(raster_path)[0]))
+            os.makedirs(zonal_working_dir, exist_ok=True)
             zonal_stats_map = geoprocessing.zonal_statistics(
                 (raster_path, 1), args.aoi_vector_path,
-                polygons_might_overlap=False)
+                polygons_might_overlap=False,
+                working_dir=zonal_working_dir)
+            shutil.rmtree(zonal_working_dir)
             for fid, stats_map in zonal_stats_map.items():
                 feature = aoi_layer.GetFeature(fid)
                 aggregate_id = feature.GetField(args.field_id_for_aggregate)
