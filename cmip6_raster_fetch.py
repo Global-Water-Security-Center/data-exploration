@@ -128,7 +128,7 @@ def download_geotiff(
                     'all_touched': True,
                     })
             os.remove(target_preclip)
-            os.remove(f'{os.path.splitext(target_preclip)[0]}.aux.xml')
+            os.remove(f'{target_preclip}.aux.xml')
             LOGGER.info(f'saved {target_raster_path}')
         else:
             print(f"Unexpected content type: {content_type}")
