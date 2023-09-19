@@ -51,10 +51,9 @@ VALID_MODEL_LIST = [
     'TaiESM1',
     'UKESM1-0-LL',
 ]
-
+SSP_LIST = [285, 585]
 DATASET_ID = 'NASA/GDDP-CMIP6'
 DATASET_CRS = 'EPSG:4326'
-DATASET_SCALE = 27830//4
 
 
 def check_dataset_collection(model, dataset_id, band_id, start_year, end_year):
@@ -85,7 +84,7 @@ def check_dataset_collection(model, dataset_id, band_id, start_year, end_year):
 
 
 def download_geotiff(image, description, scale, ee_poly, clip_poly_path):
-    url = image.getDownloadURL({
+    url = image.resample('bilinear').getDownloadURL({
         'scale': scale,
         'crs': 'EPSG:4326',
         'region': ee_poly.geometry(),
@@ -150,8 +149,12 @@ def main():
         'field_id=field_value'))
     parser.add_argument('--aggregate_type', help='Either "sum" or "mean"')
     parser.add_argument('--band_id', help="band id to fetch")
+    parser.add_argument(
+        '--scenario_id', help="Scenario ID ssp245, ssp585, historical")
     parser.add_argument('--date_range', nargs=2, type=str, help=(
         'Two date ranges in YYYY format to download between.'))
+    parser.add_argument(
+        '--dataset_scale', type=float, help='Dataset scale', default=27830)
     args = parser.parse_args()
 
     gee_key_path = os.environ['GEE_KEY_PATH']
@@ -185,18 +188,25 @@ def main():
             filter(None, executor.map(filter_model, VALID_MODEL_LIST)))
 
     cmip6_dataset = ee.ImageCollection(DATASET_ID).filter(
-        ee.Filter.inList('model', filtered_models)).select(args.band_id)
+        ee.Filter.And(
+            ee.Filter.inList('model', filtered_models),
+            ee.Filter.eq('scenario', args.scenario_id))).select(args.band_id)
 
     thread_list = []
     for month in range(1, 13):
         monthly_collection = cmip6_dataset.filter(
             ee.Filter.calendarRange(month, month, 'month')).filter(
             ee.Filter.calendarRange(start_year, end_year, 'year'))
-        if args.aggregate_type == 'temp':
+        if args.aggregate_type == 'min':
             # convert to C
             monthly_aggregate = monthly_collection.reduce(
-                ee.Reducer.mean()).subtract(273.15)
-        elif args.aggregate_type == 'precip':
+                ee.Reducer.min()).subtract(273.15)
+        elif args.aggregate_type.startswith('percentile'):
+            # convert to C
+            percentile = float(args.aggregate_type.split('_')[1])
+            monthly_aggregate = monthly_collection.reduce(
+                ee.Reducer.percentile(percentile)).subtract(273.15)
+        elif args.aggregate_type == 'sum':
             # Group by model (replace 'model' with the actual property name)
             unique_models = monthly_collection.aggregate_array(
                 'model').distinct()
@@ -224,12 +234,13 @@ def main():
         monthly_aggregate_clipped = monthly_aggregate.clip(ee_poly)
         LOGGER.debug(monthly_aggregate_clipped.getInfo())
         description = (
-            f"{args.band_id}_monthlyMean_{start_year}_{end_year}_{month}")
+            f'{args.band_id}_{args.scenario_id}_monthly_{args.aggregate_type}'
+            f'{start_year}_{end_year}_{month}')
         worker = threading.Thread(
             target=download_geotiff,
             args=(
                 monthly_aggregate_clipped,
-                description, DATASET_SCALE, ee_poly, local_shapefile_path))
+                description, args.dataset_scale, ee_poly, local_shapefile_path))
         worker.start()
         thread_list.append(worker)
 
