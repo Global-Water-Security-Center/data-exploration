@@ -128,7 +128,7 @@ def download_geotiff(
                     'all_touched': True,
                     })
             os.remove(target_preclip)
-            os.remove(f'{os.path.splitext(target_preclip)[0]}.xml')
+            os.remove(f'{os.path.splitext(target_preclip)[0]}.aux.xml')
             LOGGER.info(f'saved {target_raster_path}')
         else:
             print(f"Unexpected content type: {content_type}")
@@ -193,8 +193,8 @@ def main():
         filtered_models = list(
             filter(None, executor.map(filter_model, VALID_MODEL_LIST)))
 
-    if not os.path.exists(args.table_path):
-        make_header = True
+    make_header = not os.path.exists(args.table_path)
+    make_header = True
     table_file = open(args.table_path, 'a')
     if make_header:
         table_file.write('f{args.field_id_for_aggregate},band_id,scenario_id,model_id,aggregate_type,start-end-year,month,avg val in feature\n')
