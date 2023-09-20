@@ -38,20 +38,23 @@ VALID_MODEL_LIST = [
     'FGOALS-g3',
     'GFDL-ESM4',
     'GISS-E2-1-G',
-    'HadGEM3-GC31-MM',
-    'IITM-ESM',
-    'INM-CM5-0',
-    'IPSL-CM6A-LR',
-    'KACE-1-0-G',
-    'KIOST-ESM',
-    'MIROC-ES2L',
-    'MPI-ESM1-2-HR',
-    'MRI-ESM2-0',
-    'NESM3',
-    'NorESM2-MM',
-    'TaiESM1',
-    'UKESM1-0-LL',
+    'SNRM-ESM2-1',
+    # 'HadGEM3-GC31-MM',
+    # 'IITM-ESM',
+    # 'INM-CM5-0',
+    # 'IPSL-CM6A-LR',
+    # 'KACE-1-0-G',
+    # 'KIOST-ESM',
+    # 'MIROC-ES2L',
+    # 'MPI-ESM1-2-HR',
+    # 'MRI-ESM2-0',
+    # 'NESM3',
+    # 'NorESM2-MM',
+    # 'TaiESM1',
+    # 'UKESM1-0-LL',
 ]
+
+
 SSP_LIST = [285, 585]
 DATASET_ID = 'NASA/GDDP-CMIP6'
 DATASET_CRS = 'EPSG:4326'
@@ -200,8 +203,9 @@ def main():
     if make_header:
         table_file.write(f'{args.field_id_for_aggregate},band_id,scenario_id,model_id,aggregate_type,start-end-year,month,avg val in feature\n')
 
-    models_to_analyze = [
-        (model_id, [model_id]) for model_id in filtered_models]
+    models_to_analyze = []
+    # models_to_analyze += [
+    #     (model_id, [model_id]) for model_id in filtered_models]
     models_to_analyze += [('all_models', filtered_models)]
 
     for model_id, model_list in models_to_analyze:
@@ -270,6 +274,8 @@ def main():
         aoi_vector = gdal.OpenEx(args.aoi_vector_path)
         aoi_layer = aoi_vector.GetLayer()
         for (band_id, scenario_id, aggregate_type, start_end_year, month), raster_path in raster_path_map.items():
+            if month == 0:
+                month = 'year'
             zonal_working_dir = os.path.join(WORKSPACE_DIR, os.path.basename(os.path.splitext(raster_path)[0]))
             os.makedirs(zonal_working_dir, exist_ok=True)
             zonal_stats_map = geoprocessing.zonal_statistics(
