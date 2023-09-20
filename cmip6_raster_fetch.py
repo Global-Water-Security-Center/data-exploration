@@ -216,7 +216,7 @@ def main():
         for month in range(0, 13):
             description = (
                 f'{args.band_id}_{args.scenario_id}_{model_id}_{args.aggregate_type}'
-                f'{start_year}_{end_year:02i}')
+                f'{start_year}_{end_year}')
             filtered_collection = cmip6_dataset.filter(
                 ee.Filter.calendarRange(start_year, end_year, 'year'))
             if month > 0:
@@ -236,25 +236,24 @@ def main():
 
             if args.aggregate_type == 'min':
                 # convert to C
-                monthly_aggregate = filtered_collection.reduce(
+                aggregate = filtered_collection.reduce(
                     ee.Reducer.min()).subtract(273.15)
             elif args.aggregate_type.startswith('percentile'):
                 # convert to C
                 percentile = float(args.aggregate_type.split('_')[1])
-                monthly_aggregate = filtered_collection.reduce(
+                aggregate = filtered_collection.reduce(
                     ee.Reducer.percentile([percentile])).subtract(273.15)
             elif args.aggregate_type == 'sum':
                 # multiply by 86400 to convert to mm
-                monthly_aggregate = filtered_collection.reduce(
+                aggregate = filtered_collection.reduce(
                     ee.Reducer.sum()).multiply(
                         86400/((end_year-start_year+1)*len(model_list)))
-            monthly_aggregate_clipped = monthly_aggregate.clip(ee_poly)
+            aggregate_clipped = aggregate.clip(ee_poly)
             try:
-                LOGGER.debug(monthly_aggregate_clipped.getInfo())
                 worker = threading.Thread(
                     target=download_geotiff,
                     args=(
-                        monthly_aggregate_clipped,
+                        aggregate_clipped,
                         description, args.dataset_scale, ee_poly,
                         local_shapefile_path, target_raster_path))
                 worker.start()
