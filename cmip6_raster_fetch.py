@@ -205,7 +205,6 @@ def main():
     models_to_analyze += [('all_models', filtered_models)]
 
     for model_id, model_list in models_to_analyze:
-        model_list = [model_id]
         cmip6_dataset = ee.ImageCollection(DATASET_ID).filter(
             ee.Filter.And(
                 ee.Filter.inList('model', model_list),
@@ -214,10 +213,19 @@ def main():
 
         thread_list = []
         raster_path_map = {}
-        for month in range(1, 13):
+        for month in range(0, 13):
             description = (
-                f'{args.band_id}_{args.scenario_id}_{model_id}_monthly_{args.aggregate_type}'
-                f'{start_year}_{end_year}_{month}')
+                f'{args.band_id}_{args.scenario_id}_{model_id}_{args.aggregate_type}'
+                f'{start_year}_{end_year:02i}')
+            filtered_collection = cmip6_dataset.filter(
+                ee.Filter.calendarRange(start_year, end_year, 'year'))
+            if month > 0:
+                filtered_collection = filtered_collection.filter(
+                    ee.Filter.calendarRange(month, month, 'month'))
+                description += f'_{month:02d}'
+            else:
+                description += '_year'
+
             target_raster_path = os.path.join(WORKSPACE_DIR, f'{description}.tif')
             if os.path.exists(target_raster_path):
                 LOGGER.info(f'{target_raster_path} already exists, so skipping')
@@ -226,21 +234,18 @@ def main():
                      f'{start_year}-{end_year}', month)] = target_raster_path
                 continue
 
-            monthly_collection = cmip6_dataset.filter(
-                ee.Filter.calendarRange(month, month, 'month')).filter(
-                ee.Filter.calendarRange(start_year, end_year, 'year'))
             if args.aggregate_type == 'min':
                 # convert to C
-                monthly_aggregate = monthly_collection.reduce(
+                monthly_aggregate = filtered_collection.reduce(
                     ee.Reducer.min()).subtract(273.15)
             elif args.aggregate_type.startswith('percentile'):
                 # convert to C
                 percentile = float(args.aggregate_type.split('_')[1])
-                monthly_aggregate = monthly_collection.reduce(
+                monthly_aggregate = filtered_collection.reduce(
                     ee.Reducer.percentile([percentile])).subtract(273.15)
             elif args.aggregate_type == 'sum':
                 # multiply by 86400 to convert to mm
-                monthly_aggregate = monthly_collection.reduce(
+                monthly_aggregate = filtered_collection.reduce(
                     ee.Reducer.sum()).multiply(
                         86400/((end_year-start_year+1)*len(model_list)))
             monthly_aggregate_clipped = monthly_aggregate.clip(ee_poly)
