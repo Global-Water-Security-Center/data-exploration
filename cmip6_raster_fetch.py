@@ -146,19 +146,14 @@ def download_geotiff(
 
 
 def filter_by_julian_day(collection, start_year, end_year, julian_day, n_day_window):
-    years = ee.List.sequence(start_year, end_year)
-    initial = ee.ImageCollection([])
+    all_collections = []
+    for year in range(start_year, end_year + 1):
+        start_date = ee.Date.fromYMD(year, 1, 1).advance(julian_day - n_day_window//2, 'day')
+        end_date = ee.Date.fromYMD(year, 1, 1).advance(julian_day + n_day_window//2, 'day')
+        filtered = collection.filterDate(start_date, end_date)
+        all_collections.append(filtered)
+    return ee.ImageCollection(ee.ImageCollection(all_collections).flatten())
 
-    def year_filter(year, collection):
-        year = ee.Number(year)
-        start_date = ee.Date.fromYMD(year, 1, 1).advance(julian_day - 1, 'day')
-        start_window = start_date.advance(-n_day_window//2, 'day')
-        end_window = start_date.advance(n_day_window//2, 'day')
-
-        filtered = collection.filterDate(start_window, end_window)
-        return ee.ImageCollection(collection).merge(filtered)
-
-    return ee.ImageCollection(years.iterate(year_filter, initial))
 
 
 def authenticate():
@@ -248,6 +243,7 @@ def main():
                 variable_id)
 
             for julian_day in [0]+list(range(args.n_day_window//2, 366, args.n_day_window)):
+                LOGGER.debug(f'processing day {julian_day} of {date_range} for {variable_id}')
                 description = (
                     f'{variable_id}_{scenario_id}_{model_id}_'
                     f'{start_year}_{end_year}')
