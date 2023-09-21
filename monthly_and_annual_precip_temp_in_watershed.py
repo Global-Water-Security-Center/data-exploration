@@ -16,7 +16,7 @@ from utils import build_monthly_ranges
 from utils import daterange
 import numpy
 
-from fetch_data import fetch_data
+from ecoshard import fetch_data
 
 logging.basicConfig(
     level=logging.INFO,
