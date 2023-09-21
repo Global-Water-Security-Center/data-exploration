@@ -1,12 +1,17 @@
 """See `python scriptname.py --help"""
 import argparse
 import collections
+import geopandas
+import shutil
+
 import multiprocessing
 import datetime
 import glob
 import logging
 import os
 import sys
+import time
+import tempfile
 
 from osgeo import osr
 from ecoshard import geoprocessing
@@ -26,7 +31,7 @@ logging.basicConfig(
         ' [%(funcName)s:%(lineno)d] %(message)s'))
 LOGGER = logging.getLogger(os.path.splitext(os.path.basename(__file__))[0])
 LOGGER.setLevel(logging.DEBUG)
-logging.getLogger('fetch_data').setLevel(logging.INFO)
+logging.getLogger('ecoshard.fetch_data').setLevel(logging.INFO)
 
 DATASET_ID = 'era5_daily'
 VARIABLE_ID_LIST = ['sum_tp_mm', 'mean_t2m_c']
@@ -63,6 +68,7 @@ def mean_of_raster_op(raster_path):
 
 
 def main():
+    start_time = time.time()
     parser = argparse.ArgumentParser(description=(
         'Given a region and a time period create four tables (1) monthly '
         'precip and mean temperature and (2) annual '
@@ -71,20 +77,55 @@ def main():
         'sum over AOI and (6) '
         'overall monthly temperture mean in the AOI.'))
     parser.add_argument(
-        'path_to_watersheds', help='Path to vector/shapefile of watersheds')
+        'path_to_aoi', help='Path to vector/shapefile of watersheds')
     parser.add_argument(
-        'start_date', help='start date for summation (YYYY-MM-DD) format')
+        '--date_range', default=[], action='append', required=True, nargs=2,
+        help='Pass a pair of start/end dates in the (YYYY-MM-DD) format')
     parser.add_argument(
-        'end_date', help='start date for summation (YYYY-MM-DD) format')
+        '--filter_aoi_by_field', help=(
+            'an argument of the form FIELDNAME=VALUE such as `sov_a3=AFG`'))
     args = parser.parse_args()
 
+    temp_dir = None
+    if args.filter_aoi_by_field:
+        temp_dir = tempfile.mkdtemp(dir='.')
+        filtered_aoi_path = os.path.join(
+            temp_dir,
+            f'{os.path.basename(os.path.splitext(args.path_to_aoi)[0])}'
+            f'{args.filter_aoi_by_field}.gpkg')
+        aoi_vector = geopandas.read_file(args.path_to_aoi)
+        field_id, value = args.filter_aoi_by_field.split('=')
+        aoi_vector = aoi_vector[aoi_vector[field_id] == value]
+        aoi_vector.to_file(filtered_aoi_path, driver='GPKG')
+        aoi_vector = None
+        aoi_path = filtered_aoi_path
+    else:
+        aoi_path = args.path_to_aoi
+
+    result_workspace_path_list = []
+    for start_date, end_date in args.date_range:
+        result_workspace_path = process_date_range(
+            aoi_path, start_date, end_date)
+        result_workspace_path_list.append(result_workspace_path)
+
+    if temp_dir is not None:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+    LOGGER.info(
+        f'******** ALL DONE ({time.time()-start_time:.2f}s), results '
+        'in:\n\t* ' + '\n\t* '.join(result_workspace_path_list))
+
+
+def process_date_range(path_to_aoi, start_date, end_date):
+    """Process a given date range and return the workspace."""
     monthly_date_range_list = build_monthly_ranges(
-        args.start_date, args.end_date)
+        start_date, end_date)
 
     vector_basename = os.path.basename(
-        os.path.splitext(args.path_to_watersheds)[0])
+        os.path.splitext(path_to_aoi)[0])
     project_basename = (
-        f'''{vector_basename}_{args.start_date}_{args.end_date}''')
+        f'month_and_annual_precp_temp_{vector_basename}_{start_date}_'
+        f'{end_date}')
     workspace_dir = f'workspace_{project_basename}'
     task_graph = taskgraph.TaskGraph(
         workspace_dir, multiprocessing.cpu_count(), 15.0)
@@ -114,7 +155,7 @@ def main():
                     clip_dir, f'clip_{DATASET_ID}_{variable_id}_{date_str}')
 
                 vector_info = geoprocessing.get_vector_info(
-                    args.path_to_watersheds)
+                    path_to_aoi)
                 vector_projection = osr.SpatialReference()
                 vector_projection.ImportFromWkt(vector_info['projection_wkt'])
                 if vector_projection.IsProjected():
@@ -122,14 +163,19 @@ def main():
                 else:
                     clip_cell_size = (ERA5_RESOLUTION_DEG, -ERA5_RESOLUTION_DEG)
 
+                dataset_args = {
+                    'date': date_str,
+                    'variable': variable_id
+                }
+
                 fetch_and_clip_args = (
-                    DATASET_ID, variable_id, date_str,
+                    DATASET_ID, dataset_args,
                     clip_cell_size,
-                    args.path_to_watersheds, clip_path)
+                    path_to_aoi, clip_path)
 
                 exists_task = task_graph.add_task(
                     func=fetch_data.file_exists,
-                    args=(DATASET_ID, variable_id, date_str),
+                    args=(DATASET_ID, dataset_args),
                     store_result=True,
                     transient_run=True,
                     task_name=(
@@ -212,7 +258,7 @@ def main():
     # create table that lists precip and temp means per month
     target_base = (
         f"{vector_basename}_monthly_precip_temp_mean_"
-        f"{args.start_date}_{args.end_date}")
+        f"{start_date}_{end_date}")
     target_table_path = os.path.join(workspace_dir, f"{target_base}.csv")
 
     # report precip and temp cronologically by month
@@ -237,7 +283,7 @@ def main():
             ('precip', precip_by_month), ('temp', temp_by_month)]:
         monthly_normal_table_path = (
             f"{vector_basename}_monthly_{table_type}_normal_"
-            f"{args.start_date}_{args.end_date}.csv")
+            f"{start_date}_{end_date}.csv")
         target_table_path = os.path.join(workspace_dir, f"{target_base}.csv")
         with open(monthly_normal_table_path, 'w') as \
                 monthly_normal_table:
@@ -248,7 +294,7 @@ def main():
 
     target_base = (
         f"{vector_basename}_annual_precip_mean_"
-        f"{args.start_date}_{args.end_date}")
+        f"{start_date}_{end_date}")
     target_table_path = os.path.join(workspace_dir, f"{target_base}.csv")
     print(f'generating summary table to {target_table_path}')
     with open(target_table_path, 'w') as table_file:
@@ -268,8 +314,6 @@ def main():
             f'{total_sum/total_months*12}\n')
 
     # generate total precip sum raster
-    monthly_precip_dir
-    monthly_temp_dir
     precip_raster_path_list = [
         (path, 1) for path in glob.glob(os.path.join(
             monthly_precip_dir, '*.tif'))]
@@ -280,12 +324,12 @@ def main():
     total_precip_path = os.path.join(
         workspace_dir,
         (f"{vector_basename}_precip_mm_sum_"
-         f"{args.start_date}_{args.end_date}.tif"))
+         f"{start_date}_{end_date}.tif"))
 
     total_temp_mean_path = os.path.join(
         workspace_dir,
         (f"{vector_basename}_temp_C_monthly_mean_"
-         f"{args.start_date}_{args.end_date}.tif"))
+         f"{start_date}_{end_date}.tif"))
 
     _ = task_graph.add_task(
         func=geoprocessing.raster_calculator,
@@ -307,8 +351,7 @@ def main():
 
     task_graph.join()
     task_graph.close()
-
-    LOGGER.info(f'********** ALL DONE -> results are in {workspace_dir}')
+    return workspace_dir
 
 
 if __name__ == '__main__':
