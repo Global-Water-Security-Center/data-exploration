@@ -94,55 +94,60 @@ def check_dataset_collection(model, dataset_id, band_id, start_year, end_year):
 def download_geotiff(
         image, description, scale, ee_poly, clip_poly_path,
         target_raster_path):
-    url = image.resample('bilinear').getDownloadURL({
-        'scale': scale,
-        'crs': 'EPSG:4326',
-        'region': ee_poly.geometry(),
-        'fileFormat': 'GeoTIFF',
-        'description': description,
-    })
+    try:
+        url = image.resample('bilinear').getDownloadURL({
+            'scale': scale,
+            'crs': 'EPSG:4326',
+            'region': ee_poly.geometry(),
+            'fileFormat': 'GeoTIFF',
+            'description': description,
+        })
 
-    response = requests.get(url)
-    if response.status_code == 200:
-        content_type = response.headers.get('content-type')
-        if 'application/zip' in content_type or 'application/octet-stream' in content_type:
-            zip_buffer = io.BytesIO(response.content)
-            target_preclip = os.path.join(WORKSPACE_DIR, f"pre_clip_{description}.tif")
+        response = requests.get(url)
+        if response.status_code == 200:
+            content_type = response.headers.get('content-type')
+            if 'application/zip' in content_type or 'application/octet-stream' in content_type:
+                zip_buffer = io.BytesIO(response.content)
+                target_preclip = os.path.join(WORKSPACE_DIR, f"pre_clip_{description}.tif")
 
-            with zipfile.ZipFile(zip_buffer) as zip_ref:
-                zip_ref.extractall(f"{description}")
-                # Assuming there is only one tif file in the zip
-                for filename in zip_ref.namelist():
-                    if filename.endswith('.tif'):
-                        # Optionally rename the file
-                        if os.path.exists(target_preclip):
-                            os.remove(target_preclip)
-                        os.rename(f"{description}/{filename}", target_preclip)
-                        shutil.rmtree(description)
-                        print(f"Successfully downloaded and unzipped {filename}")
-            r = gdal.OpenEx(target_preclip, gdal.OF_RASTER)
-            b = r.GetRasterBand(1)
-            b.SetNoDataValue(-9999)
-            b = None
-            r = None
-            raster_info = geoprocessing.get_raster_info(target_preclip)
+                with zipfile.ZipFile(zip_buffer) as zip_ref:
+                    zip_ref.extractall(f"{description}")
+                    # Assuming there is only one tif file in the zip
+                    for filename in zip_ref.namelist():
+                        if filename.endswith('.tif'):
+                            # Optionally rename the file
+                            if os.path.exists(target_preclip):
+                                os.remove(target_preclip)
+                            os.rename(f"{description}/{filename}", target_preclip)
+                            shutil.rmtree(description)
+                            LOGGER.info(f"Successfully downloaded and unzipped {filename}")
+                r = gdal.OpenEx(target_preclip, gdal.OF_RASTER)
+                b = r.GetRasterBand(1)
+                b.SetNoDataValue(-9999)
+                b = None
+                r = None
+                raster_info = geoprocessing.get_raster_info(target_preclip)
 
-            geoprocessing.warp_raster(
-                target_preclip, raster_info['pixel_size'],
-                target_raster_path,
-                'near',
-                vector_mask_options={
-                    'mask_vector_path': clip_poly_path,
-                    'all_touched': True,
-                    })
-            os.remove(target_preclip)
-            os.remove(f'{target_preclip}.aux.xml')
-            LOGGER.info(f'saved {target_raster_path}')
+                geoprocessing.warp_raster(
+                    target_preclip, raster_info['pixel_size'],
+                    target_raster_path,
+                    'near',
+                    vector_mask_options={
+                        'mask_vector_path': clip_poly_path,
+                        'all_touched': True,
+                        })
+                os.remove(target_preclip)
+                xml_path = f'{target_preclip}.aux.xml'
+                if os.path.exists(f'{target_preclip}.aux.xml'):
+                    os.remove(xml_path)
+                LOGGER.info(f'saved {target_raster_path}')
+            else:
+                print(f"Unexpected content type: {content_type}")
+                print(response.content.decode('utf-8'))
         else:
-            print(f"Unexpected content type: {content_type}")
-            print(response.content.decode('utf-8'))
-    else:
-        print(f"Failed to download {description} from {url}")
+            print(f"Failed to download {description} from {url}")
+    except Exception:
+        LOGGER.exception('error on downloading tiff')
 
 
 def filter_by_julian_day(collection, start_year, end_year, julian_day, n_day_window):
@@ -152,21 +157,22 @@ def filter_by_julian_day(collection, start_year, end_year, julian_day, n_day_win
         end_date = ee.Date.fromYMD(year, 1, 1).advance(julian_day + n_day_window//2, 'day')
         filtered = collection.filterDate(start_date, end_date)
         all_collections.append(filtered)
-    return ee.ImageCollection(ee.ImageCollection(all_collections).flatten())
-
+    result = ee.ImageCollection(ee.FeatureCollection(all_collections).flatten())
+    print(type(result))
+    return result
 
 
 def authenticate():
     try:
-        gee_key_path = os.environ['GEE_KEY_PATH']
-        credentials = ee.ServiceAccountCredentials(None, gee_key_path)
-        ee.Initialize(credentials)
+        ee.Initialize()
         return
     except Exception:
         pass
 
     try:
-        ee.Initialize()
+        gee_key_path = os.environ['GEE_KEY_PATH']
+        credentials = ee.ServiceAccountCredentials(None, gee_key_path)
+        ee.Initialize(credentials)
         return
     except Exception:
         pass
@@ -289,7 +295,9 @@ def main():
                 except Exception as e:
                     LOGGER.error(f'***** ERROR on downloading geotiff, skipping: {e}')
 
+    LOGGER.debug('waiting for shutdown')
     executor.shutdown()
+    LOGGER.debug('processing results to table')
     aoi_vector = gdal.OpenEx(args.aoi_vector_path)
     aoi_layer = aoi_vector.GetLayer()
     result_dict = collections.defaultdict(
