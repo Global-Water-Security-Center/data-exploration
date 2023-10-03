@@ -184,13 +184,22 @@ def main():
         VALID_MODEL_LIST, start_year, end_year, args.scenario_id)
     result_by_year = {}
     for target_year in range(start_year, end_year+1):
-        cmip6_dataset = ee.ImageCollection(
-            DATASET_ID).select(args.variable_id).filter(
-            ee.Filter.And(
-                ee.Filter.inList('model', model_list),
-                ee.Filter.eq('scenario', args.scenario_id),
-                ee.Filter.calendarRange(target_year, target_year, 'year'),
-                ee.Filter.calendarRange(start_day, end_day, 'day_of_year')))
+        # Create a function to get the ImageCollection filtered by days and year
+        def filter_by_days_and_year(start_day, end_day, target_year):
+            return ee.ImageCollection(DATASET_ID).select(args.variable_id).filter(
+                ee.Filter.And(
+                    ee.Filter.inList('model', model_list),
+                    ee.Filter.eq('scenario', args.scenario_id),
+                    ee.Filter.calendarRange(target_year, target_year, 'year'),
+                    ee.Filter.calendarRange(start_day, end_day, 'day_of_year')))
+
+        # Initialize the ImageCollection based on whether the day range crosses a new year
+        if start_day <= end_day:
+            cmip6_dataset = filter_by_days_and_year(start_day, end_day, target_year)
+        else:
+            first_part = filter_by_days_and_year(start_day, 365, target_year)
+            second_part = filter_by_days_and_year(1, end_day, target_year + 1)
+            cmip6_dataset = first_part.merge(second_part)
 
         def aggregate_op(model_name):
             model_data = cmip6_dataset.filter(
