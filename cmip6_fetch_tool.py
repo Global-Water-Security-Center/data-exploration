@@ -223,7 +223,7 @@ def main():
     working_dir = os.path.dirname(args.target_table_path)
     target_table_base = os.path.join(
         working_dir,
-        f'{args.variable}_'
+        f'{args.variable_id}_'
         f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_'
         f'{args.where_statement}_'
         f'{args.scenario_id}_'
