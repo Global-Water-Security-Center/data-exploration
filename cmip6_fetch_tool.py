@@ -223,12 +223,12 @@ def main():
     working_dir = os.path.dirname(args.target_table_path)
     target_table_base = os.path.join(
         working_dir,
-        f'{args.variable_id}_'
-        f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_'
-        f'{args.where_statement}_'
-        f'{args.scenario_id}_'
-        '_'.join(args.year_range) + '_'
-        '_'.join(args.season_range))
+        f'{args.variable_id}_' +
+        f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_' +
+        f'{args.where_statement}_' +
+        f'{args.scenario_id}_' +
+        '_'.join([str(x) for x in args.year_range]) + '_' +
+        '_'.join([str(x) for x in args.season_range]))
 
     os.makedirs(working_dir, exist_ok=True)
     pickle_file = '%s.pkl ' % target_table_base
@@ -238,7 +238,7 @@ def main():
     with open(f'{target_table_base}.csv', 'w') as table_file:
         table_file.write(',' + ','.join(sorted(model_list)) + '\n')
         for year in range(start_year, end_year+1):
-            year_data = result_by_year[str(year)]
+            year_data = result_by_year[year]
             table_file.write(
                 f'{year},' + ','.join(
                     [str(year_data[model_id])
