@@ -204,8 +204,9 @@ def main():
         def aggregate_op(model_name):
             model_data = cmip6_dataset.filter(
                 ee.Filter.eq('model', model_name))
-            sum_result = True
+            sum_result = False
             if args.aggregate_function.startswith('gt'):
+                sum_result = True
                 threshold_val = float(args.aggregate_function.split('_')[1])
                 def mark_above_threshold(image):
                     return image.gt(threshold_val)
@@ -224,8 +225,10 @@ def main():
 
             if args.aggregate_function == 'sum' or sum_result:
                 reducer_op = ee.Reducer.sum()
+                print('*********** SUM REDUCER')
             elif args.aggregate_function == 'mean':
                 reducer_op = ee.Reducer.mean()
+                print('*********** MEAN REDUCER')
             return model_data.reduce(
                 reducer_op).reduceRegion(
                 reducer=ee.Reducer.mean(), geometry=ee_poly,
