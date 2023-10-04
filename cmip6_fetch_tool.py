@@ -153,8 +153,10 @@ def main():
     parser.add_argument(
         '--target_table_path', help="Name of target table", required=True)
     parser.add_argument(
+        '--file_prefix', default='', help='Prefix the output file with this.')
+    parser.add_argument(
         '--eval_cmd',
-        help='an arbitrary command using "val" as the variable to do any final conversion')
+        help='an arbitrary command using "var" as the variable to do any final conversion')
 
     args = parser.parse_args()
     authenticate()
@@ -164,11 +166,9 @@ def main():
         field_id, field_val = args.where_statement.split('=')
         # make sure we cast the input type to the type in the field
         print(numpy.unique(aoi_vector[field_id]))
-        #return
         field_type = type(aoi_vector[field_id].iloc[0])
         aoi_vector = aoi_vector[aoi_vector[field_id] == field_type(field_val)]
         print(aoi_vector)
-        print(aoi_vector.size)
 
     local_shapefile_path = '_local_cmip6_aoi_ok_to_delete.json'
     aoi_vector = aoi_vector.to_crs('EPSG:4326')
@@ -204,7 +204,25 @@ def main():
         def aggregate_op(model_name):
             model_data = cmip6_dataset.filter(
                 ee.Filter.eq('model', model_name))
-            if args.aggregate_function == 'sum':
+            sum_result = True
+            if args.aggregate_function.startswith('gt'):
+                threshold_val = float(args.aggregate_function.split('_')[1])
+                def mark_above_threshold(image):
+                    return image.gt(threshold_val)
+                # Apply the count_days_above_threshold function to each image in the collection
+                model_data = model_data.map(mark_above_threshold)
+
+                def has_one_or_more(image):
+                    result = ee.Image.constant(image.reduceRegion(
+                        reducer=ee.Reducer.anyNonZero(),
+                        geometry=ee_poly,
+                        scale=DATASET_SCALE
+                    ).values().get(0)).toInt()
+                    return result
+                # Map the function over the ImageCollection
+                model_data = model_data.map(has_one_or_more)
+
+            if args.aggregate_function == 'sum' or sum_result:
                 reducer_op = ee.Reducer.sum()
             elif args.aggregate_function == 'mean':
                 reducer_op = ee.Reducer.mean()
@@ -232,7 +250,9 @@ def main():
     working_dir = os.path.dirname(args.target_table_path)
     target_table_base = os.path.join(
         working_dir,
+        f'{args.file_prefix}_'
         f'{args.variable_id}_' +
+        f'{args.aggregate_function}_'
         f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_' +
         f'{args.where_statement}_' +
         f'{args.scenario_id}_' +
