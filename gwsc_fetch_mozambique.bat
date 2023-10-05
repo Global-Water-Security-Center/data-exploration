@@ -30,7 +30,7 @@ for %%c in (1 2 3 4) do (
 
     REM Days per year above 30 C (Honduras, Coffee)
     REM 303.15 is 30 deg C
-    call python cmip6_fetch_tool.py --aoi_vector_path base_data/HN_Koppen4Class.gpkg --where_statement KC=%%c --scenario_id %scenario% --year_range %startyear% %endyear% --season_range 1 182 --variable_id tas --aggregate_function gt_303.15 --target_table_path cmip6_output_old/output --File_prefix HN_days_above_30c_jan-jun
+    call python cmip6_fetch_tool.py --aoi_vector_path base_data/HN_Koppen4Class.gpkg --where_statement KC=%%c --scenario_id %scenario% --year_range %startyear% %endyear% --season_range 1 182 --variable_id tas --aggregate_function gt_303.15 --target_table_path cmip6_output_old/output --file_prefix HN_days_above_30c_jan-jun
 
     call python cmip6_fetch_tool.py --aoi_vector_path base_data/HN_Koppen4Class.gpkg --where_statement KC=%%c --scenario_id %scenario% --year_range %startyear% %endyear% --season_range 183 365 --variable_id tas --aggregate_function gt_303.15 --target_table_path cmip6_output_old/output --file_prefix HN_days_above_30c_jul-dec
 
