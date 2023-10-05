@@ -19,8 +19,7 @@ for %%c in (120 221 321) do (
     call python cmip6_fetch_tool.py --aoi_vector_path base_data/moz_regions --where_statement CR=%%c --scenario_id %scenario% --year_range %startyear% %endyear% --season_range 247 59 --variable_id tas --aggregate_function gt_309.15 --target_table_path cmip6_output/ --file_prefix MOZ_days_above_36c_oct_through_feb_ --dataset_scale 30000
 )
 
-REM for %%c in (1 2 3 4) do (
-REM for %%c in (2 3 4) do (
+for %%c in (1 2 3 4) do (
     REM x Total annual precipitation
     call python cmip6_fetch_tool.py --aoi_vector_path base_data/HN_Koppen4Class.gpkg --where_statement KC=%%c --scenario_id %scenario% --year_range %startyear% %endyear% --season_range 1 365 --variable_id pr --aggregate_function sum --eval_cmd 86400*var --target_table_path cmip6_output/ --file_prefix HN_annual_total_precip_mm_
 
@@ -38,7 +37,7 @@ REM for %%c in (2 3 4) do (
     call python cmip6_fetch_tool.py --aoi_vector_path base_data/HN_Koppen4Class.gpkg --where_statement KC=%%c --scenario_id %scenario% --year_range %startyear% %endyear% --season_range 183 365 --variable_id tas --aggregate_function gt_303.15 --target_table_path cmip6_output/ --file_prefix HN_days_above_30c_jul-dec
 
     call python cmip6_fetch_tool.py --aoi_vector_path base_data/HN_Koppen4Class.gpkg --where_statement KC=%%c --scenario_id %scenario% --year_range %startyear% %endyear% --season_range 121 243 --variable_id tas --aggregate_function gt_309.15 --target_table_path cmip6_output/ --file_prefix HN_days_above_36c_may_aug_
-REM )
+)
 
 REM For years: 2035-2065
 REM x Total annual precipitation
