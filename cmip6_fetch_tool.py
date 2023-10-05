@@ -204,6 +204,7 @@ def main():
         def aggregate_op(model_name):
             model_data = cmip6_dataset.filter(
                 ee.Filter.eq('model', model_name))
+
             sum_result = False
             if args.aggregate_function.startswith('gt'):
                 sum_result = True
@@ -217,7 +218,7 @@ def main():
                     result = ee.Image.constant(image.reduceRegion(
                         reducer=ee.Reducer.anyNonZero(),
                         geometry=ee_poly,
-                        scale=DATASET_SCALE
+                        scale=args.dataset_scale
                     ).values().get(0)).toInt()
                     return result
                 # Map the function over the ImageCollection
@@ -225,21 +226,19 @@ def main():
 
             if args.aggregate_function == 'sum' or sum_result:
                 reducer_op = ee.Reducer.sum()
-                print('*********** SUM REDUCER')
             elif args.aggregate_function == 'mean':
                 reducer_op = ee.Reducer.mean()
-                print('*********** MEAN REDUCER')
             return model_data.reduce(
                 reducer_op).reduceRegion(
                 reducer=ee.Reducer.mean(), geometry=ee_poly,
-                scale=DATASET_SCALE).values().get(0)
+                scale=args.dataset_scale).values().get(0)
 
         aggregate_by_model_dict = ee.Dictionary.fromLists(
             model_list,
             ee.List(model_list).map(
                 lambda model_name: aggregate_op(
                     ee.String(model_name))))
-        print(f'processing year {target_year}')
+        print(f'processing year {target_year} of {args.variable_id} of {args.where_statement}')
         result_by_year[target_year] = aggregate_by_model_dict.getInfo()
 
     if args.eval_cmd is not None:
