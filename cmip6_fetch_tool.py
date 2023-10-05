@@ -159,6 +159,22 @@ def main():
         help='an arbitrary command using "var" as the variable to do any final conversion')
 
     args = parser.parse_args()
+    working_dir = args.target_table_path
+    target_table_base = os.path.join(
+        working_dir,
+        f'{args.file_prefix}_'
+        f'{args.variable_id}_' +
+        f'{args.aggregate_function}_'
+        f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_' +
+        f'{args.where_statement}_' +
+        f'{args.scenario_id}_' +
+        '_'.join([str(x) for x in args.year_range]) + '_' +
+        '_'.join([str(x) for x in args.season_range]))
+    target_table_path = f'{target_table_base}.csv'
+    if os.path.exists(target_table_path):
+        print(f'{target_table_path} exists, skipping....')
+        return
+
     authenticate()
 
     aoi_vector = geopandas.read_file(args.aoi_vector_path)
@@ -249,24 +265,12 @@ def main():
             } for year, inner_dict in result_by_year.items()
         }
 
-    working_dir = os.path.dirname(args.target_table_path)
-    target_table_base = os.path.join(
-        working_dir,
-        f'{args.file_prefix}_'
-        f'{args.variable_id}_' +
-        f'{args.aggregate_function}_'
-        f'{os.path.basename(os.path.splitext(args.aoi_vector_path)[0])}_' +
-        f'{args.where_statement}_' +
-        f'{args.scenario_id}_' +
-        '_'.join([str(x) for x in args.year_range]) + '_' +
-        '_'.join([str(x) for x in args.season_range]))
-
     os.makedirs(working_dir, exist_ok=True)
     pickle_file = '%s.pkl ' % target_table_base
     with open(pickle_file, 'wb') as f:
         pickle.dump(result_by_year, f)
 
-    with open(f'{target_table_base}.csv', 'w') as table_file:
+    with open(target_table_path, 'w') as table_file:
         table_file.write(',' + ','.join(sorted(model_list)) + '\n')
         for year in range(start_year, end_year+1):
             year_data = result_by_year[year]
