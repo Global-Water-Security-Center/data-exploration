@@ -242,12 +242,6 @@ optional arguments:
   -h, --help  show this help message and exit
 extract_drought_thresholds_from_aer_gdm.py
 ------------------------------------------
-Error when loading fetch_data: Could not find a custom file registry config file at any of the expected locations: ['C:\\Users\\richp/.fetch_data_config_dir/fetch_user.ini', '.fetch_data_config_dir/fetch_user.ini']
-To resolve this error, create a file at one of the expected locations and populate it with this template that can be customized:
-[defaults]
-CACHE_DIR=C:\Users\richp/.fetch_data_config_dir/cache_dir
-
-CREDENTIALS_DIR=C:\Users\richp/.fetch_data_config_dir/access_keys
 usage: extract_drought_thresholds_from_aer_gdm.py [-h] [--filter_aoi_by_field FILTER_AOI_BY_FIELD] aoi_vector_path start_date end_date
 
 Extract SPEI12 thresholds from https://h2o.aer.com/thredds/dodsC/gwsc/gdm and produce a CSV that breaks down analysis by year to highlight how many months
@@ -267,12 +261,6 @@ optional arguments:
 
 fetch_aer_anomalies.py
 ----------------------
-Error when loading fetch_data: Could not find a custom file registry config file at any of the expected locations: ['C:\\Users\\richp/.fetch_data_config_dir/fetch_user.ini', '.fetch_data_config_dir/fetch_user.ini']
-To resolve this error, create a file at one of the expected locations and populate it with this template that can be customized:
-[defaults]
-CACHE_DIR=C:\Users\richp/.fetch_data_config_dir/cache_dir
-
-CREDENTIALS_DIR=C:\Users\richp/.fetch_data_config_dir/access_keys
 usage: fetch_aer_anomalies.py [-h] [--local_workspace LOCAL_WORKSPACE] --path_to_aoi PATH_TO_AOI [--filter_aoi_by_field FILTER_AOI_BY_FIELD]
                               start_date end_date
 
@@ -310,12 +298,6 @@ optional arguments:
 
 monthly_and_annual_precip_temp_in_watershed.py
 ----------------------------------------------
-Error when loading fetch_data: Could not find a custom file registry config file at any of the expected locations: ['C:\\Users\\richp/.fetch_data_config_dir/fetch_user.ini', '.fetch_data_config_dir/fetch_user.ini']
-To resolve this error, create a file at one of the expected locations and populate it with this template that can be customized:
-[defaults]
-CACHE_DIR=C:\Users\richp/.fetch_data_config_dir/cache_dir
-
-CREDENTIALS_DIR=C:\Users\richp/.fetch_data_config_dir/access_keys
 usage: monthly_and_annual_precip_temp_in_watershed.py [-h] --date_range DATE_RANGE DATE_RANGE [--filter_aoi_by_field FILTER_AOI_BY_FIELD] path_to_aoi
 
 Given a region and a time period create four tables (1) monthly precip and mean temperature and (2) annual rainfall, (3) monthly normal temp, and (4)
@@ -409,12 +391,6 @@ optional arguments:
 
 storm_event_detection.py
 ------------------------
-Error when loading fetch_data: Could not find a custom file registry config file at any of the expected locations: ['C:\\Users\\richp/.fetch_data_config_dir/fetch_user.ini', '.fetch_data_config_dir/fetch_user.ini']
-To resolve this error, create a file at one of the expected locations and populate it with this template that can be customized:
-[defaults]
-CACHE_DIR=C:\Users\richp/.fetch_data_config_dir/cache_dir
-
-CREDENTIALS_DIR=C:\Users\richp/.fetch_data_config_dir/access_keys
 usage: storm_event_detection.py [-h] --date_range DATE_RANGE DATE_RANGE [--rain_event_threshold RAIN_EVENT_THRESHOLD] path_to_watersheds
 
 Detect storm events in a 48 hour window using a threshold for precip. Result is located in a directory called `workspace_{vector name}` and contains rasters
@@ -448,12 +424,6 @@ optional arguments:
 
 update_era5.py
 --------------
-Error when loading fetch_data: Could not find a custom file registry config file at any of the expected locations: ['C:\\Users\\richp/.fetch_data_config_dir/fetch_user.ini', '.fetch_data_config_dir/fetch_user.ini']
-To resolve this error, create a file at one of the expected locations and populate it with this template that can be customized:
-[defaults]
-CACHE_DIR=C:\Users\richp/.fetch_data_config_dir/cache_dir
-
-CREDENTIALS_DIR=C:\Users\richp/.fetch_data_config_dir/access_keys
 usage: update_era5.py [-h] [--local_workspace LOCAL_WORKSPACE] start_date end_date
 
 Synchronize the files in AER era5 to GWSC wasabi hot storage.
