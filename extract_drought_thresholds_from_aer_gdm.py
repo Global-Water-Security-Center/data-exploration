@@ -15,7 +15,6 @@ import geopandas
 import numpy
 import pandas
 import rasterio
-import utils
 import xarray
 
 logging.basicConfig(
@@ -29,6 +28,15 @@ LOGGER.setLevel(logging.DEBUG)
 
 GDM_DATASET = 'https://h2o.aer.com/thredds/dodsC/gwsc/gdm'
 WORKSPACE_DIR = 'extract_drought_thresholds_workspace'
+
+
+def get_file_basename(path):
+    """Return base file path, or last directory."""
+    basename = os.path.basename(os.path.splitext(path)[0])
+    if basename == '':
+        # do last directory
+        basename = os.path.normpath(path).split(os.sep)[-1]
+    return basename
 
 
 class ValidateYearMonthFormat(argparse.Action):
@@ -172,9 +180,10 @@ def main():
         filter_str = ''
 
     table_path = f'''spei12_drought_info_raw_{
-        utils.file_basename(args.aoi_vector_path)}_{filter_str}{
+        get_file_basename(args.aoi_vector_path)}_{filter_str}{
         args.start_date}_{args.end_date}.csv'''
-    drought_months = collections.defaultdict(lambda: collections.defaultdict(int))
+    drought_months = collections.defaultdict(
+        lambda: collections.defaultdict(int))
     LOGGER.info('start processing')
     with open(table_path, 'w') as table_file:
         table_file.write(
@@ -232,7 +241,7 @@ def main():
             table_file.write('\n')
 
     file_basename = (
-        f'{utils.file_basename(args.aoi_vector_path)}_{filter_str}'
+        f'{get_file_basename(args.aoi_vector_path)}_{filter_str}'
         f'{args.start_date}_{args.end_date}')
     table_path = f'''spei12_drought_info_by_year_{file_basename}.csv'''
     with open(table_path, 'w') as table_file:
