@@ -2,13 +2,10 @@
 import argparse
 import os
 
-import geopandas
-import matplotlib.pyplot as plt
 import numpy
 import pandas
 import plotly.express as px
 import rioxarray
-import xarray
 
 COUNTRY_NAME = 'Kenya'
 START_DATE = '2012-01-01'
