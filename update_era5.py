@@ -7,11 +7,15 @@ import logging
 import os
 import sys
 
-from ecoshard import fetch_data
 from rasterio.transform import Affine
 import numpy
 import rasterio
 import xarray
+
+try:
+    from ecoshard import fetch_data
+except RuntimeError as e:
+    print(f'Error when loading fetch_data: {e}')
 
 logging.basicConfig(
     level=logging.INFO,
