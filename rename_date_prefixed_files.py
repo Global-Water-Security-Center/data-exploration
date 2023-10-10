@@ -15,6 +15,7 @@ def boolean_type(value):
     else:
         raise argparse.ArgumentTypeError("Expected 'true' or 'false'")
 
+
 def eight_digit_type(value):
     if len(value) != 8 or not value.isdigit():
         raise argparse.ArgumentTypeError("Expected exactly 8 digits")
