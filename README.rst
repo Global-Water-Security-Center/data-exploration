@@ -437,6 +437,3 @@ optional arguments:
   --local_workspace LOCAL_WORKSPACE
                         Directory to downloand and work in.
 
-utils.py
---------
-
