@@ -21,7 +21,10 @@ from utils import build_monthly_ranges
 from utils import daterange
 import numpy
 
-from ecoshard import fetch_data
+try:
+    from ecoshard import fetch_data
+except RuntimeError as e:
+    print(f'Error when loading fetch_data: {e}')
 
 logging.basicConfig(
     level=logging.INFO,

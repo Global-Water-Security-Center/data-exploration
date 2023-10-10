@@ -17,7 +17,10 @@ from ecoshard import taskgraph
 import numpy
 import requests
 
-from ecoshard import fetch_data
+try:
+    from ecoshard import fetch_data
+except RuntimeError as e:
+    print(f'Error when loading fetch_data: {e}')
 
 logging.basicConfig(
     level=logging.DEBUG,
