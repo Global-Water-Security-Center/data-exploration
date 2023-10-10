@@ -18,7 +18,7 @@ END_DATE = '2022-03-01'
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description=(
-        'Not a command line script. Used to explore how to extract rain '
+        'Not a command line script. Was used to explore how to extract rain '
         'events by watershed in a time range. API docs at: https://climate-indices.readthedocs.io/en/latest/'))
     _ = parser.parse_args()
     # countries.gpkg can be downloaded from https://github.com/tsamsonov/r-geo-course/blob/master/data/ne/countries.gpkg
