@@ -1,3 +1,4 @@
+"""See `python scriptname.py --help"""
 import argparse
 import collections
 import datetime

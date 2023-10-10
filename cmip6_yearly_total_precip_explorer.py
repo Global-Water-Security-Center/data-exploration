@@ -1,3 +1,4 @@
+"""See `python scriptname.py --help"""
 from concurrent.futures import ThreadPoolExecutor
 import argparse
 import collections
@@ -80,7 +81,7 @@ def process_file(file_path, zip_path, point):
 
 def main():
     parser = argparse.ArgumentParser(description=(
-        'Process CMIP6 raw urls to geotiff.'))
+        'A script used to generate box plots to interpret CMIP6 raw data.'))
     parser.add_argument('point', nargs=2, help='lat/lng point to analyze')
     args = parser.parse_args()
 

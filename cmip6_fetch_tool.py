@@ -1,5 +1,4 @@
-"""
-"""
+"""See `python scriptname.py --help"""
 import argparse
 import functools
 import logging
