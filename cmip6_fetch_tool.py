@@ -275,7 +275,7 @@ def main():
 
     with open(target_table_path, 'w') as table_file:
         table_file.write(',' + ','.join(sorted(model_list)) + '\n')
-        for year_season in sorted(result_by_year_and_season):
+        for year_season in sorted(result_by_year_and_season, key=lambda x: int(x[1].split('-')[0])):
             year_data = result_by_year_and_season[year_season]
             table_file.write(
                 f'{year_season[0]} {year_season[1]},' + ','.join(
