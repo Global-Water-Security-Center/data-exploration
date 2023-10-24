@@ -144,8 +144,8 @@ def main():
         '--scenario_id', required=True,
         help="Scenario ID ssp245, ssp585, historical")
     parser.add_argument(
-        '--season_range', nargs=2, type=int, required=True,
-        help='Julian start/end day of analysis')
+        '--season_range', nargs='+', required=True,
+        help='Pairs of start-end Julian days to do the analysis, successive ones will be appended to the table')
     parser.add_argument(
         '--dataset_scale', type=float, default=DATASET_SCALE, help=(
             f'Override the base scale of {DATASET_SCALE}m to '
@@ -194,88 +194,92 @@ def main():
 
     # Filter models dynamically based on data availability
     start_year, end_year = args.year_range
-    start_day, end_day = args.season_range
 
     model_list = get_valid_model_list(
         VALID_MODEL_LIST, start_year, end_year, args.scenario_id)
-    result_by_year = {}
-    for target_year in range(start_year, end_year+1):
-        # Create a function to get the ImageCollection filtered by days and year
-        def filter_by_days_and_year(start_day, end_day, target_year):
-            return ee.ImageCollection(DATASET_ID).select(args.variable_id).filter(
-                ee.Filter.And(
-                    ee.Filter.inList('model', model_list),
-                    ee.Filter.eq('scenario', args.scenario_id),
-                    ee.Filter.calendarRange(target_year, target_year, 'year'),
-                    ee.Filter.calendarRange(start_day, end_day, 'day_of_year')))
+    result_by_year_and_season = {}
 
-        # Initialize the ImageCollection based on whether the day range crosses a new year
-        if start_day <= end_day:
-            cmip6_dataset = filter_by_days_and_year(start_day, end_day, target_year)
-        else:
-            first_part = filter_by_days_and_year(start_day, 365, target_year)
-            second_part = filter_by_days_and_year(1, end_day, target_year + 1)
-            cmip6_dataset = first_part.merge(second_part)
+    for start_end_str in args.season_range:
+        start_day, end_day = [int(x) for x in start_end_str.split('-')]
+        for target_year in range(start_year, end_year+1):
+            # Create a function to get the ImageCollection filtered by days and year
+            def filter_by_days_and_year(start_day, end_day, target_year):
+                return ee.ImageCollection(DATASET_ID).select(args.variable_id).filter(
+                    ee.Filter.And(
+                        ee.Filter.inList('model', model_list),
+                        ee.Filter.eq('scenario', args.scenario_id),
+                        ee.Filter.calendarRange(target_year, target_year, 'year'),
+                        ee.Filter.calendarRange(start_day, end_day, 'day_of_year')))
 
-        def aggregate_op(model_name):
-            model_data = cmip6_dataset.filter(
-                ee.Filter.eq('model', model_name))
+            # Initialize the ImageCollection based on whether the day range crosses a new year
+            if start_day <= end_day:
+                cmip6_dataset = filter_by_days_and_year(start_day, end_day, target_year)
+            else:
+                first_part = filter_by_days_and_year(start_day, 365, target_year)
+                second_part = filter_by_days_and_year(1, end_day, target_year + 1)
+                cmip6_dataset = first_part.merge(second_part)
 
-            sum_result = False
-            if args.aggregate_function.startswith('gt'):
-                sum_result = True
-                threshold_val = float(args.aggregate_function.split('_')[1])
-                def mark_above_threshold(image):
-                    return image.gt(threshold_val)
-                # Apply the count_days_above_threshold function to each image in the collection
-                model_data = model_data.map(mark_above_threshold)
+            def aggregate_op(model_name):
+                model_data = cmip6_dataset.filter(
+                    ee.Filter.eq('model', model_name))
+                sum_result = False
+                if args.aggregate_function.startswith('gt'):
+                    sum_result = True
+                    threshold_val = float(args.aggregate_function.split('_')[1])
+                    print(threshold_val)
+                    def mark_above_threshold(image):
+                        return image.gt(threshold_val)
+                    # Apply the count_days_above_threshold function to each image in the collection
+                    model_data = model_data.map(mark_above_threshold)
 
-                def has_one_or_more(image):
-                    result = ee.Image.constant(image.reduceRegion(
-                        reducer=ee.Reducer.anyNonZero(),
-                        geometry=ee_poly,
-                        scale=args.dataset_scale
-                    ).values().get(0)).toInt()
-                    return result
-                # Map the function over the ImageCollection
-                model_data = model_data.map(has_one_or_more)
+                    def has_one_or_more(image):
+                        result = ee.Image.constant(image.reduceRegion(
+                            reducer=ee.Reducer.anyNonZero(),
+                            geometry=ee_poly,
+                            scale=args.dataset_scale
+                        ).values().get(0)).toInt()
+                        return result
+                    # Map the function over the ImageCollection
+                    model_data = model_data.map(has_one_or_more)
 
-            if args.aggregate_function == 'sum' or sum_result:
-                reducer_op = ee.Reducer.sum()
-            elif args.aggregate_function == 'mean':
-                reducer_op = ee.Reducer.mean()
-            return model_data.reduce(
-                reducer_op).reduceRegion(
-                reducer=ee.Reducer.mean(), geometry=ee_poly,
-                scale=args.dataset_scale).values().get(0)
+                if args.aggregate_function == 'sum' or sum_result:
+                    print('doing sum')
+                    reducer_op = ee.Reducer.sum()
+                elif args.aggregate_function == 'mean':
+                    print('doing mean')
+                    reducer_op = ee.Reducer.mean()
+                return model_data.reduce(
+                    reducer_op).reduceRegion(
+                    reducer=ee.Reducer.mean(), geometry=ee_poly,
+                    scale=args.dataset_scale).values().get(0)
 
-        aggregate_by_model_dict = ee.Dictionary.fromLists(
-            model_list,
-            ee.List(model_list).map(
-                lambda model_name: aggregate_op(
-                    ee.String(model_name))))
-        print(f'processing year {target_year} of {args.variable_id} of {args.where_statement}')
-        result_by_year[target_year] = aggregate_by_model_dict.getInfo()
+            aggregate_by_model_dict = ee.Dictionary.fromLists(
+                model_list,
+                ee.List(model_list).map(
+                    lambda model_name: aggregate_op(
+                        ee.String(model_name))))
+            print(f'processing year {target_year} of {args.variable_id} of {args.where_statement}')
+            result_by_year_and_season[(target_year, start_end_str)] = aggregate_by_model_dict.getInfo()
 
     if args.eval_cmd is not None:
-        result_by_year = {
-            year: {
+        result_by_year_and_season = {
+            year_season: {
                 model: None if var is None else eval(args.eval_cmd)
                 for model, var in inner_dict.items()
-            } for year, inner_dict in result_by_year.items()
+            } for year_season, inner_dict in result_by_year_and_season.items()
         }
 
     os.makedirs(working_dir, exist_ok=True)
     pickle_file = '%s.pkl ' % target_table_base
     with open(pickle_file, 'wb') as f:
-        pickle.dump(result_by_year, f)
+        pickle.dump(result_by_year_and_season, f)
 
     with open(target_table_path, 'w') as table_file:
         table_file.write(',' + ','.join(sorted(model_list)) + '\n')
-        for year in range(start_year, end_year+1):
-            year_data = result_by_year[year]
+        for year_season in sorted(result_by_year_and_season):
+            year_data = result_by_year_and_season[year_season]
             table_file.write(
-                f'{year},' + ','.join(
+                f'{year_season[0]} {year_season[1]},' + ','.join(
                     [str(year_data[model_id])
                      for model_id in sorted(model_list)]) + '\n')
 
