@@ -6,8 +6,8 @@ import xarray
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Dump netcat info on a file to command line.')
-    parser.add_argument('raster_path', help='path to netcat file')
+        description='Dump netcdf info on a file to command line.')
+    parser.add_argument('raster_path', help='path to netcdf file')
     args = parser.parse_args()
     decode_times = True
     while True:

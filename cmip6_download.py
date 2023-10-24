@@ -1,3 +1,4 @@
+"""See `python scriptname.py --help"""
 from concurrent.futures import as_completed
 from concurrent.futures import ProcessPoolExecutor
 import argparse
@@ -190,15 +191,15 @@ def _download_file(target_dir, url):
 
 def process_cmip6_netcdf_to_geotiff(
         executor, netcdf_path, target_vars, target_path_pattern):
-    """Convert era5 netcat files to geotiff
+    """Convert era5 netcdf files to geotiff
 
     Args:
-        netcat_path (str): path to netcat file
+        netcdf_path (str): path to netcdf file
         date_str (str): formatted version of the date to use in the target
             file
         target_path_pattern (str): pattern that will allow the replacement
             of `variable` and `date` strings with the appropriate variable
-            date strings in the netcat variables.
+            date strings in the netcdf variables.
 
     Returns:
         list of (file, variable_id) tuples created by this process

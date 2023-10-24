@@ -69,8 +69,6 @@ DATASET_SCALE = 27830
 # if there are consecutive heat days, the number of heat blocks in the medium period, by year
 
 
-
-
 def main():
     parser = argparse.ArgumentParser(
         description='Experiments on NEX GDDP CMIP6 data.')

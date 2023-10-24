@@ -7,11 +7,15 @@ import logging
 import os
 import sys
 
-from ecoshard import fetch_data
 from rasterio.transform import Affine
 import numpy
 import rasterio
 import xarray
+
+try:
+    from ecoshard import fetch_data
+except RuntimeError as e:
+    print(f'Error when loading fetch_data: {e}')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,22 +28,22 @@ LOGGER.setLevel(logging.DEBUG)
 logging.getLogger('fetch_data').setLevel(logging.INFO)
 
 
-def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
-    """Convert era5 netcat files to geotiff
+def process_era5_netcdf_to_geotiff(netcdf_path, date_str, target_path_pattern):
+    """Convert era5 netcdf files to geotiff
 
     Args:
-        netcat_path (str): path to netcat file
+        netcdf_path (str): path to netcdf file
         date_str (str): formatted version of the date to use in the target
             file
         target_path_pattern (str): pattern that will allow the replacement
             of `variable` and `date` strings with the appropriate variable
-            date strings in the netcat variables.
+            date strings in the netcdf variables.
 
     Returns:
         list of (file, variable_id) tuples created by this process
     """
-    LOGGER.info(f'processing {netcat_path}')
-    dataset = xarray.open_dataset(netcat_path)
+    LOGGER.info(f'processing {netcdf_path}')
+    dataset = xarray.open_dataset(netcdf_path)
 
     res_list = []
     coord_list = []
@@ -82,11 +86,11 @@ def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
 def download_and_repack(date_str, target_path_pattern):
     try:
         LOGGER.info(f'fetching {date_str}')
-        netcat_path = fetch_data.fetch_file(
-            'aer_era5_netcat_daily', {'date': date_str})
-        LOGGER.info(f'downloaded to {netcat_path}')
-        geotiff_path_variable_id_list = process_era5_netcat_to_geotiff(
-            netcat_path, date_str, target_path_pattern)
+        netcdf_path = fetch_data.fetch_file(
+            'aer_era5_netcdf_daily', {'date': date_str})
+        LOGGER.info(f'downloaded to {netcdf_path}')
+        geotiff_path_variable_id_list = process_era5_netcdf_to_geotiff(
+            netcdf_path, date_str, target_path_pattern)
         for geotiff_path, variable_id in geotiff_path_variable_id_list:
             remote_path = fetch_data.put_file(geotiff_path, 'era5_daily', {
                 'date': date_str,

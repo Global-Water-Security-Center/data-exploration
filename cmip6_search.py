@@ -1,3 +1,4 @@
+"""See `python scriptname.py --help"""
 from concurrent.futures import ThreadPoolExecutor
 import argparse
 import pickle
@@ -11,10 +12,6 @@ from threading import Lock
 import traceback
 
 from tenacity import retry, stop_after_attempt, wait_random_exponential
-from rasterio.transform import Affine
-import numpy
-import rasterio
-import xarray
 
 
 BASE_URL = 'https://esgf-node.llnl.gov/esg-search/search'
@@ -112,61 +109,6 @@ def print_dict(d, indent=0):
             print_dict(value, indent+1)
 
 
-def process_era5_netcat_to_geotiff(netcat_path, date_str, target_path_pattern):
-    """Convert era5 netcat files to geotiff
-
-    Args:
-        netcat_path (str): path to netcat file
-        date_str (str): formatted version of the date to use in the target
-            file
-        target_path_pattern (str): pattern that will allow the replacement
-            of `variable` and `date` strings with the appropriate variable
-            date strings in the netcat variables.
-
-    Returns:
-        list of (file, variable_id) tuples created by this process
-    """
-    LOGGER.info(f'processing {netcat_path}')
-    dataset = xarray.open_dataset(netcat_path)
-
-    res_list = []
-    coord_list = []
-    for coord_id, field_id in zip(['x', 'y'], ['longitude', 'latitude']):
-        coord_array = dataset.coords[field_id]
-        res_list.append(float(
-            (coord_array[-1] - coord_array[0]) / len(coord_array)))
-        coord_list.append(coord_array)
-
-    transform = Affine.translation(
-        *[a[0] for a in coord_list]) * Affine.scale(*res_list)
-
-    target_path_variable_id_list = []
-    for variable_id, data_array in dataset.items():
-        target_path = target_path_pattern.format(**{
-            'date': date_str,
-            'variable': variable_id
-            })
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with rasterio.open(
-            target_path,
-            mode="w",
-            driver="GTiff",
-            height=len(coord_list[1]),
-            width=len(coord_list[0]),
-            count=1,
-            dtype=numpy.float32,
-            nodata=None,
-            crs="+proj=latlong",
-            transform=transform,
-            **{
-                'tiled': 'YES',
-                'COMPRESS': 'LZW',
-                'PREDICTOR': 2}) as new_dataset:
-            new_dataset.write(data_array)
-        target_path_variable_id_list.append((target_path, variable_id))
-    return target_path_variable_id_list
-
-
 def main():
     parser = argparse.ArgumentParser(description=(
         'Fetch CMIP6 variables into wasabi hot storage.'))
@@ -184,7 +126,7 @@ def main():
             'overrides a general search and instead fetches urls missing '
             'from a previous run'))
 
-    # CMIP6 is cool bec ause  it has the variants
+    # CMIP6 is cool because  it has the variants
     # r variable is start each model with a different
     # surface temperature, so having the 10 ensamble
     # members provides some sense of reality of that
@@ -229,14 +171,6 @@ def main():
     response = requests.get(BASE_URL, params=search_params)
     response_data = response.json()
     num_results = response_data['response']['numFound']
-    # #print(list(response_data['response'].keys()))
-    # for docs in response_data['response']['docs']:
-    #     print_dict(docs)
-    #     for key, value in docs.items():
-    #         print(f'{key}: {value}')
-
-    #     break
-    # return
 
     # Loop through all pages and append the results to a list
     #result_by_variable = defaultdict(dict)

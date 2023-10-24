@@ -9,13 +9,17 @@ import sys
 import tempfile
 
 from osgeo import gdal
-from ecoshard import fetch_data
 from ecoshard import geoprocessing
 from rasterio.transform import Affine
 import geopandas
 import numpy
 import rasterio
 import xarray
+
+try:
+    from ecoshard import fetch_data
+except RuntimeError as e:
+    print(f'Error when loading fetch_data: {e}')
 
 logging.basicConfig(
     level=logging.INFO,

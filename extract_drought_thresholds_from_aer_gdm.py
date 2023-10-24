@@ -9,13 +9,17 @@ import re
 import sys
 
 from dateutil.relativedelta import relativedelta
-from ecoshard import fetch_data
 from rasterio.transform import Affine
 import geopandas
 import numpy
 import pandas
 import rasterio
 import xarray
+
+try:
+    from ecoshard import fetch_data
+except RuntimeError as e:
+    print(f'Error when loading fetch_data: {e}')
 
 logging.basicConfig(
     level=logging.INFO,

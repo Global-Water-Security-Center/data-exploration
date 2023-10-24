@@ -26,7 +26,7 @@ def main():
 Get the historical 95th percentile of rain in one day as a threshold to
     establish what a heavy rain event looks like and report the number of
     heavy rain days per year in the historical time period (can be averaged
-    over the time period if that’s useful)
+    over the time period if that's useful)
 Using that same heavy rain event threshold, report the number of heavy rain
     days per year for the three future time steps (could also be averaged over
     each time step if that's useful)
