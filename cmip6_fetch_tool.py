@@ -174,108 +174,114 @@ def main():
         print(f'{target_table_path} exists, skipping....')
         return
 
-    authenticate()
-
-    aoi_vector = geopandas.read_file(args.aoi_vector_path)
-    if args.where_statement:
-        field_id, field_val = args.where_statement.split('=')
-        # make sure we cast the input type to the type in the field
-        print(numpy.unique(aoi_vector[field_id]))
-        field_type = type(aoi_vector[field_id].iloc[0])
-        aoi_vector = aoi_vector[aoi_vector[field_id] == field_type(field_val)]
-        print(aoi_vector)
-
-    local_shapefile_path = '_local_cmip6_aoi_ok_to_delete.json'
-    aoi_vector = aoi_vector.to_crs('EPSG:4326')
-    aoi_vector.to_file(local_shapefile_path)
-    aoi_vector = None
-    ee_poly = geemap.geojson_to_ee(local_shapefile_path)
-
     # Filter models dynamically based on data availability
     start_year, end_year = args.year_range
-
     model_list = get_valid_model_list(
         VALID_MODEL_LIST, start_year, end_year, args.scenario_id)
-    result_by_year_and_season = {}
 
-    for start_end_str in args.season_range:
-        start_day, end_day = [int(x) for x in start_end_str.split('-')]
-        for target_year in range(start_year, end_year+1):
-            # Create a function to get the ImageCollection filtered by days and year
-            def filter_by_days_and_year(start_day, end_day, target_year):
-                return ee.ImageCollection(DATASET_ID).select(args.variable_id).filter(
-                    ee.Filter.And(
-                        ee.Filter.inList('model', model_list),
-                        ee.Filter.eq('scenario', args.scenario_id),
-                        ee.Filter.calendarRange(target_year, target_year, 'year'),
-                        ee.Filter.calendarRange(start_day, end_day, 'day_of_year')))
-
-            # Initialize the ImageCollection based on whether the day range crosses a new year
-            if start_day <= end_day:
-                cmip6_dataset = filter_by_days_and_year(start_day, end_day, target_year)
-            else:
-                first_part = filter_by_days_and_year(start_day, 365, target_year)
-                second_part = filter_by_days_and_year(1, end_day, target_year + 1)
-                cmip6_dataset = first_part.merge(second_part)
-
-            def aggregate_op(model_name):
-                model_data = cmip6_dataset.filter(
-                    ee.Filter.eq('model', model_name))
-                sum_result = False
-                if args.aggregate_function.startswith('gt'):
-                    sum_result = True
-                    threshold_val = float(args.aggregate_function.split('_')[1])
-                    print(threshold_val)
-                    def mark_above_threshold(image):
-                        return image.gt(threshold_val)
-                    # Apply the count_days_above_threshold function to each image in the collection
-                    model_data = model_data.map(mark_above_threshold)
-
-                    def has_one_or_more(image):
-                        result = ee.Image.constant(image.reduceRegion(
-                            reducer=ee.Reducer.anyNonZero(),
-                            geometry=ee_poly,
-                            scale=args.dataset_scale
-                        ).values().get(0)).toInt()
-                        return result
-                    # Map the function over the ImageCollection
-                    model_data = model_data.map(has_one_or_more)
-
-                if args.aggregate_function == 'sum' or sum_result:
-                    print('doing sum')
-                    reducer_op = ee.Reducer.sum()
-                elif args.aggregate_function == 'mean':
-                    print('doing mean')
-                    reducer_op = ee.Reducer.mean()
-                return model_data.reduce(
-                    reducer_op).reduceRegion(
-                    reducer=ee.Reducer.mean(), geometry=ee_poly,
-                    scale=args.dataset_scale).values().get(0)
-
-            aggregate_by_model_dict = ee.Dictionary.fromLists(
-                model_list,
-                ee.List(model_list).map(
-                    lambda model_name: aggregate_op(
-                        ee.String(model_name))))
-            print(f'processing year {target_year} of {args.variable_id} of {args.where_statement}')
-            result_by_year_and_season[(target_year, start_end_str)] = aggregate_by_model_dict.getInfo()
-
-    if args.eval_cmd is not None:
-        result_by_year_and_season = {
-            year_season: {
-                model: None if var is None else eval(args.eval_cmd)
-                for model, var in inner_dict.items()
-            } for year_season, inner_dict in result_by_year_and_season.items()
-        }
-
-    os.makedirs(working_dir, exist_ok=True)
     pickle_file = '%s.pkl ' % target_table_base
-    with open(pickle_file, 'wb') as f:
-        pickle.dump(result_by_year_and_season, f)
+    if os.path.exists(pickle_file):
+        with open(pickle_file, 'rb') as f:
+            result_by_year_and_season = pickle.load(f)
+    else:
+        authenticate()
+
+        aoi_vector = geopandas.read_file(args.aoi_vector_path)
+        if args.where_statement:
+            field_id, field_val = args.where_statement.split('=')
+            # make sure we cast the input type to the type in the field
+            print(numpy.unique(aoi_vector[field_id]))
+            field_type = type(aoi_vector[field_id].iloc[0])
+            aoi_vector = aoi_vector[aoi_vector[field_id] == field_type(field_val)]
+            print(aoi_vector)
+
+        local_shapefile_path = '_local_cmip6_aoi_ok_to_delete.json'
+        aoi_vector = aoi_vector.to_crs('EPSG:4326')
+        aoi_vector.to_file(local_shapefile_path)
+        aoi_vector = None
+        ee_poly = geemap.geojson_to_ee(local_shapefile_path)
+
+        result_by_year_and_season = {}
+
+        for start_end_str in args.season_range:
+            start_day, end_day = [int(x) for x in start_end_str.split('-')]
+            for target_year in range(start_year, end_year+1):
+                # Create a function to get the ImageCollection filtered by days and year
+                def filter_by_days_and_year(start_day, end_day, target_year):
+                    return ee.ImageCollection(DATASET_ID).select(args.variable_id).filter(
+                        ee.Filter.And(
+                            ee.Filter.inList('model', model_list),
+                            ee.Filter.eq('scenario', args.scenario_id),
+                            ee.Filter.calendarRange(target_year, target_year, 'year'),
+                            ee.Filter.calendarRange(start_day, end_day, 'day_of_year')))
+
+                # Initialize the ImageCollection based on whether the day range crosses a new year
+                if start_day <= end_day:
+                    cmip6_dataset = filter_by_days_and_year(start_day, end_day, target_year)
+                else:
+                    first_part = filter_by_days_and_year(start_day, 365, target_year)
+                    second_part = filter_by_days_and_year(1, end_day, target_year + 1)
+                    cmip6_dataset = first_part.merge(second_part)
+
+                def aggregate_op(model_name):
+                    model_data = cmip6_dataset.filter(
+                        ee.Filter.eq('model', model_name))
+                    sum_result = False
+                    if args.aggregate_function.startswith('gt'):
+                        sum_result = True
+                        threshold_val = float(args.aggregate_function.split('_')[1])
+                        print(threshold_val)
+
+                        def mark_above_threshold(image):
+                            return image.gt(threshold_val)
+                        # Apply the count_days_above_threshold function to each image in the collection
+                        model_data = model_data.map(mark_above_threshold)
+
+                        def has_one_or_more(image):
+                            result = ee.Image.constant(image.reduceRegion(
+                                reducer=ee.Reducer.anyNonZero(),
+                                geometry=ee_poly,
+                                scale=args.dataset_scale
+                            ).values().get(0)).toInt()
+                            return result
+                        # Map the function over the ImageCollection
+                        model_data = model_data.map(has_one_or_more)
+
+                    if args.aggregate_function == 'sum' or sum_result:
+                        print('doing sum')
+                        reducer_op = ee.Reducer.sum()
+                    elif args.aggregate_function == 'mean':
+                        print('doing mean')
+                        reducer_op = ee.Reducer.mean()
+                    return model_data.reduce(
+                        reducer_op).reduceRegion(
+                        reducer=ee.Reducer.mean(), geometry=ee_poly,
+                        scale=args.dataset_scale).values().get(0)
+
+                aggregate_by_model_dict = ee.Dictionary.fromLists(
+                    model_list,
+                    ee.List(model_list).map(
+                        lambda model_name: aggregate_op(
+                            ee.String(model_name))))
+                print(f'processing year {target_year} of {args.variable_id} of {args.where_statement}')
+                result_by_year_and_season[(target_year, start_end_str)] = aggregate_by_model_dict.getInfo()
+
+        if args.eval_cmd is not None:
+            result_by_year_and_season = {
+                year_season: {
+                    model: None if var is None else eval(args.eval_cmd)
+                    for model, var in inner_dict.items()
+                } for year_season, inner_dict in result_by_year_and_season.items()
+            }
+
+        os.makedirs(working_dir, exist_ok=True)
+        pickle_file = '%s.pkl ' % target_table_base
+        with open(pickle_file, 'wb') as f:
+            pickle.dump(result_by_year_and_season, f)
 
     with open(target_table_path, 'w') as table_file:
         table_file.write(',' + ','.join(sorted(model_list)) + '\n')
-        for year_season in sorted(result_by_year_and_season, key=lambda x: int(x[1].split('-')[0])):
+        for year_season in sorted(result_by_year_and_season, key=lambda x: f'{x[0]}{int(x[1].split("-")[0]):03d}'):
             year_data = result_by_year_and_season[year_season]
             table_file.write(
                 f'{year_season[0]} {year_season[1]},' + ','.join(
